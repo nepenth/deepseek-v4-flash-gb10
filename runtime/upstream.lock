@@ -11,16 +11,23 @@ CUDA_VERSION=13.0.3
 PYTHON_VERSION=3.12
 TORCH_VERSION=2.13.0
 FLASHINFER_VERSION=0.6.16.post3
-CUTLASS_DSL_VERSION=4.6.0
+CUTLASS_DSL_VERSION=4.6.2
+QUACK_VERSION=0.6.4
 TVM_FFI_VERSION=0.1.11
+
+# vLLM PR #50796 restores the SM120/SM121 scale-factor layout while retaining
+# SITU activation support. v0.27.1's e21c821 pin cannot post-process the
+# DeepSeek-V4-Flash-0731 UE8M0 block-scaled weights on this architecture.
+DEEPGEMM_COMMIT=2fd67329ec2942f65ba35d561256ab6ed3b903cb
 
 # GB10 is SM121. The trailing "a" preserves architecture-specific features
 # when vLLM translates TORCH_CUDA_ARCH_LIST into CMake gencode flags.
 TORCH_CUDA_ARCH_LIST=12.1a
 
 # Research pins are documentation inputs, not installed runtime dependencies.
-# b12x contains the newer 368-byte packed NVFP4 MLA writer/readers. The Moet
-# fork contains the earlier 352-byte FlashInfer expansion proof.
+# b12x contains a 368-byte packed NVFP4 MLA reference for a 512+64 geometry.
+# The Moet fork contains the earlier 352-byte GLM-5.2 expansion proof. Neither
+# record is the DeepSeek V4 448+64 sparse-MLA geometry.
 B12X_RESEARCH_REPOSITORY=https://github.com/local-inference-lab/b12x.git
 B12X_RESEARCH_COMMIT=ce7f62275b12ceaeee71e603fb2419bb556e166a
 MOET_RESEARCH_REPOSITORY=https://github.com/kacper-daftcode/vLLM-Moet.git

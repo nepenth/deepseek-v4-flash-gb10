@@ -10,7 +10,8 @@ commit 6e448d0ea9bf3d88d898b65449ca6dc2aec170ac
 CUDA 13.0.3
 PyTorch 2.13.0
 FlashInfer 0.6.16.post3
-CUTLASS DSL 4.6.0
+CUTLASS DSL 4.6.2 / QuACK 0.6.4 (merged upstream post-release patch)
+DeepGEMM 2fd67329ec2942f65ba35d561256ab6ed3b903cb
 TORCH_CUDA_ARCH_LIST=12.1a
 ```
 
@@ -32,9 +33,20 @@ The current series contains:
 - upstream narrower DeepSeek V4 eager CUDA graph region;
 - the maintained port of vLLM PR #42359's same-step prefix-cache guard,
   extended to all DeepSeek V4 cache groups and enabled for this recipe.
+- vLLM PR #50796's DeepGEMM SM120/SITU pin, required to load the official
+  UE8M0 checkpoint on SM121;
+- the capture-stable C128A row-stride fix from vLLM PR #51318;
+- merged post-release packed-KV zeroing, rejection-sampler, DSpark warmup,
+  sparse-MLA workspace/index-remap, per-request chunked-context, adaptive
+  scheduling, dependency-pin, and DeepSeek V4 parser fixes;
+- focused mixed-batch drafter metadata and token-bound guards from the
+  hardware-validated jasl SM121 preview branch.
 
 The broad v0.25 overlay under `runtime/overlay/` remains for history and
 attribution. It is not copied into v0.27.1.
+
+The selection evidence, excluded candidates, and remaining hardware gates are
+recorded in `docs/UPSTREAM_AUDIT_2026-08-11.md`.
 
 ## Build
 
@@ -72,6 +84,8 @@ The patch series adds `VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT`:
 - `0`: disable for controlled diagnosis only.
 
 The current image and patch series still require two-node DGX Spark hardware
-validation before publication. The source and static contracts do not replace
+validation before publication. In particular, the exact DeepGEMM child pin
+and combined 23-patch stack have not been built on GB10 in this workspace.
+The source and static contracts do not replace
 the long-context, acceptance, and throughput gates in
 `docs/NVFP4_DS_MLA.md`.

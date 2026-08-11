@@ -32,8 +32,9 @@ services:
       TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-0}"
       HF_HUB_DISABLE_XET: "${HF_HUB_DISABLE_XET:-1}"
       DSPARK_MODEL: "${DSPARK_MODEL:-deepseek-ai/DeepSeek-V4-Flash-0731}"
-      # Pin HF revision (issue #19). Empty → tip of default branch / refs/main.
-      DSPARK_REVISION: "${DSPARK_REVISION:-}"
+      # NVIDIA's dual-Spark recipe and this repo's validation use this exact
+      # checkpoint revision. Set DSPARK_REVISION= explicitly to follow refs/main.
+      DSPARK_REVISION: "${DSPARK_REVISION:-9e165c30e2704aec5d9d593cce3eebd58bbef1cb}"
       VLLM_CACHE_ROOT: /cache/huggingface/vllm-cache
       VLLM_HOST_IP: "${VLLM_HOST_IP:-}"
 

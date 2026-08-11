@@ -1,0 +1,590 @@
+From 3496004d7a0188edf60fd196a80a7bd7691ed026 Mon Sep 17 00:00:00 2001
+From: Nick Hill <nickhill123@gmail.com>
+Date: Sat, 8 Aug 2026 16:58:43 -0700
+Subject: [PATCH 17/23] [Bugfix][MRV2] Reserve spec-decode lookahead blocks in
+ V2 warmup (#51438)
+
+Signed-off-by: Rahul Chalamala <22563365+rchalamala@users.noreply.github.com>
+Signed-off-by: Nick Hill <nickhill123@gmail.com>
+Co-authored-by: Rahul Chalamala <22563365+rchalamala@users.noreply.github.com>
+Co-authored-by: Janelle Cai <janelle.cai@modal.com>
+(cherry picked from commit d608dfabfdba7e1496e5fef7c66d27c131f59432)
+---
+ tests/v1/worker/test_gpu_warmup_blocks.py | 361 ++++++++++++++++++++++
+ vllm/config/vllm.py                       |  27 ++
+ vllm/v1/core/sched/scheduler.py           |  18 +-
+ vllm/v1/worker/gpu/warmup.py              |  80 +++--
+ 4 files changed, 449 insertions(+), 37 deletions(-)
+ create mode 100644 tests/v1/worker/test_gpu_warmup_blocks.py
+
+diff --git a/tests/v1/worker/test_gpu_warmup_blocks.py b/tests/v1/worker/test_gpu_warmup_blocks.py
+new file mode 100644
+index 000000000..7b3c5b011
+--- /dev/null
++++ b/tests/v1/worker/test_gpu_warmup_blocks.py
+@@ -0,0 +1,361 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""The V2 warmup must reserve the KV blocks the scheduler would reserve.
++
++`KVCacheManager.allocate_slots` sizes every allocation for
++`num_computed + num_scheduled + num_lookahead_tokens`, because the speculator
++writes KV past the token range the target model was scheduled for. The warmup
++hand-builds its `SchedulerOutput`s, so it has to reserve the same blocks.
++"""
++
++from types import SimpleNamespace
++
++import pytest
++import torch
++
++from tests.v1.core.test_prefix_caching import make_kv_cache_manager
++from tests.v1.core.utils import create_requests
++from vllm.config.speculative import SpeculativeConfig
++from vllm.config.vllm import VllmConfig
++from vllm.platforms import current_platform
++from vllm.utils.math_utils import cdiv
++from vllm.v1.kv_cache_interface import (
++    FullAttentionSpec,
++    KVCacheConfig,
++    KVCacheGroupSpec,
++    MambaSpec,
++)
++from vllm.v1.worker.gpu.warmup import (
++    _reserved_block_count,
++    run_mixed_prefill_decode_warmup,
++    warmup_kernels,
++)
++
++BLOCK_SIZE = 16
++MAX_MODEL_LEN = 1024
++NUM_SPEC_STEPS = 3
++
++# `warmup_kernels` ends on `torch.accelerator.synchronize()`.
++pytestmark = pytest.mark.skipif(
++    not current_platform.is_cuda(), reason="warmup synchronizes on the accelerator"
++)
++
++
++def _attention_group() -> KVCacheGroupSpec:
++    return KVCacheGroupSpec(
++        ["layer"],
++        FullAttentionSpec(
++            block_size=BLOCK_SIZE,
++            num_kv_heads=1,
++            head_size=1,
++            dtype=torch.float32,
++        ),
++    )
++
++
++def _mamba_group(mamba_cache_mode: str) -> KVCacheGroupSpec:
++    # Name carries the mode so several groups can coexist in one config.
++    return KVCacheGroupSpec(
++        [f"mamba_{mamba_cache_mode}"],
++        MambaSpec(
++            block_size=BLOCK_SIZE,
++            shapes=((1,),),
++            dtypes=(torch.float32,),
++            mamba_cache_mode=mamba_cache_mode,
++            num_speculative_blocks=NUM_SPEC_STEPS,
++        ),
++    )
++
++
++def _make_runner(
++    kv_cache_groups: list[KVCacheGroupSpec],
++    num_lookahead_tokens: int,
++    num_spec_steps: int = NUM_SPEC_STEPS,
++) -> SimpleNamespace:
++    """Stub model runner exposing only what the warmup entry points read."""
++    return SimpleNamespace(
++        num_speculative_steps=num_spec_steps,
++        decode_query_len=num_spec_steps + 1,
++        is_pooling_model=False,
++        is_encoder_only=False,
++        is_encoder_decoder=False,
++        is_last_pp_rank=True,
++        max_num_reqs=4,
++        max_model_len=MAX_MODEL_LEN,
++        model_config=SimpleNamespace(get_vocab_size=lambda: 64),
++        model_state=SimpleNamespace(max_encoder_len=0),
++        scheduler_config=SimpleNamespace(max_num_seqs=4, max_num_batched_tokens=2048),
++        kv_cache_config=SimpleNamespace(
++            kv_cache_groups=kv_cache_groups, num_blocks=1024
++        ),
++        vllm_config=SimpleNamespace(num_lookahead_tokens=num_lookahead_tokens),
++        kv_block_zeroer=None,
++        kv_connector=SimpleNamespace(set_disabled=lambda disabled: None),
++    )
++
++
++class _StepRecorder:
++    """Rebuilds each request's per-group block holdings from the warmup steps."""
++
++    def __init__(self) -> None:
++        # (blocks held per group, num_computed_tokens, num_scheduled_tokens)
++        self.steps: list[tuple[list[int], int, int]] = []
++        self._held: dict[str, list[int]] = {}
++
++    def execute_model(self, scheduler_output) -> None:
++        for new_req in scheduler_output.scheduled_new_reqs:
++            self._held[new_req.req_id] = [len(ids) for ids in new_req.block_ids]
++            self._record(new_req.req_id, new_req.num_computed_tokens, scheduler_output)
++        cached = scheduler_output.scheduled_cached_reqs
++        for i, req_id in enumerate(cached.req_ids):
++            new_block_ids = cached.new_block_ids[i]
++            if new_block_ids is not None:
++                self._held[req_id] = [
++                    held + len(ids)
++                    for held, ids in zip(self._held[req_id], new_block_ids)
++                ]
++            self._record(req_id, cached.num_computed_tokens[i], scheduler_output)
++
++    def _record(self, req_id: str, num_computed: int, scheduler_output) -> None:
++        self.steps.append(
++            (
++                list(self._held[req_id]),
++                num_computed,
++                scheduler_output.num_scheduled_tokens[req_id],
++            )
++        )
++
++    def sample_tokens(self, grammar_output=None) -> None:
++        return None
++
++
++def _assert_covers_lookahead(
++    steps: list[tuple[list[int], int, int]], num_lookahead_tokens: int
++) -> None:
++    assert steps, "warmup ran no steps"
++    for num_blocks, num_computed, num_scheduled in steps:
++        num_tokens = min(
++            num_computed + num_scheduled + num_lookahead_tokens, MAX_MODEL_LEN
++        )
++        assert num_blocks[0] >= cdiv(num_tokens, BLOCK_SIZE), (
++            f"{num_blocks[0]} blocks for {num_computed}+{num_scheduled} tokens "
++            f"and {num_lookahead_tokens} lookahead tokens"
++        )
++
++
++# 0 covers eagle / MTP / draft models, 1 covers DFlash's extra in-fill query.
++@pytest.mark.parametrize("extra_lookahead", [0, 1])
++@pytest.mark.parametrize("num_spec_steps", [2, 3, 5, 7])
++def test_warmup_kernels_reserves_lookahead_blocks(num_spec_steps, extra_lookahead):
++    num_lookahead_tokens = num_spec_steps + extra_lookahead
++    recorder = _StepRecorder()
++
++    warmup_kernels(
++        _make_runner([_attention_group()], num_lookahead_tokens, num_spec_steps),
++        recorder.execute_model,
++        recorder.sample_tokens,
++    )
++
++    _assert_covers_lookahead(recorder.steps, num_lookahead_tokens)
++
++
++def test_mixed_warmup_reserves_lookahead_blocks():
++    num_lookahead_tokens = NUM_SPEC_STEPS + 1
++    recorder = _StepRecorder()
++
++    assert run_mixed_prefill_decode_warmup(
++        _make_runner([_attention_group()], num_lookahead_tokens),
++        worker_execute_model=recorder.execute_model,
++        worker_sample_tokens=recorder.sample_tokens,
++        num_tokens=128,
++    )
++
++    _assert_covers_lookahead(recorder.steps, num_lookahead_tokens)
++
++
++@pytest.mark.parametrize("mamba_cache_mode", ["none", "all", "align"])
++def test_warmup_reserves_mamba_speculative_blocks(mamba_cache_mode):
++    """Mamba groups hold the running-state block plus the speculative tail.
++
++    `MambaManager` reserves `num_speculative_blocks` blocks past the token
++    range in every cache mode, and the mamba kernels read all
++    `1 + num_speculative_blocks` of those block-table columns (see
++    `mamba_get_block_table_tensor`).
++    """
++    recorder = _StepRecorder()
++
++    warmup_kernels(
++        _make_runner(
++            [_attention_group(), _mamba_group(mamba_cache_mode)], NUM_SPEC_STEPS
++        ),
++        recorder.execute_model,
++        recorder.sample_tokens,
++    )
++
++    assert recorder.steps, "warmup ran no steps"
++    for num_blocks, num_computed, num_scheduled in recorder.steps:
++        # `MambaManager` drops the lookahead tokens in align mode to keep the
++        # allocation block-aligned, and keeps them otherwise. Pin the token
++        # range and the speculative tail separately, so an implementation that
++        # returned a flat `1 + num_speculative_blocks` would fail.
++        if mamba_cache_mode == "align":
++            # Align mode sizes from the uncapped main-model range.
++            lookahead, num_tokens = 0, num_computed + num_scheduled
++        else:
++            lookahead = NUM_SPEC_STEPS
++            num_tokens = min(num_computed + num_scheduled + lookahead, MAX_MODEL_LEN)
++        assert num_blocks[1] == cdiv(num_tokens, BLOCK_SIZE) + NUM_SPEC_STEPS, (
++            f"{mamba_cache_mode}: {num_blocks[1]} mamba blocks for "
++            f"{num_computed}+{num_scheduled} tokens and {lookahead} lookahead"
++        )
++
++
++def _hybrid_kv_cache_config(num_blocks: int) -> KVCacheConfig:
++    """Full attention plus one Mamba group per cache mode, so a single manager
++    exercises every branch `_reserved_block_count` has.
++
++    "none" and "all" reach the same branch of both `_reserved_block_count` and
++    `MambaManager`, which tests only for "align". They are still both listed:
++    the mode is a spec-level input, and having the real manager confirm the
++    prediction for each is what keeps a future divergence between them from
++    landing unnoticed.
++    """
++    return KVCacheConfig(
++        num_blocks=num_blocks,
++        kv_cache_tensors=[],
++        kv_cache_groups=[
++            _attention_group(),
++            _mamba_group("none"),
++            _mamba_group("all"),
++            _mamba_group("align"),
++        ],
++    )
++
++
++def test_reserved_block_count_matches_real_kv_cache_manager():
++    """`_reserved_block_count` must predict exactly what the real
++    `KVCacheManager.allocate_slots` consumes, for every group, at every step
++    of a warmup-realistic trajectory: a prefill followed by decode steps that
++    mix spec and non-spec shapes, all at the fixed `num_lookahead_tokens`
++    `_warmup_block_counter` binds once per model runner.
++
++    The existing tests above pin this arithmetic against a hand-built
++    `_StepRecorder` fake, which only proves the fake and the production
++    function agree with each other. Driving `allocate_slots` itself is the
++    only way to catch a real divergence from the allocator warmup has to
++    match.
++
++    Since `num_computed_tokens` only grows and `num_lookahead_tokens` is held
++    fixed across the trajectory, the real manager's held-block count is
++    non-decreasing in lockstep with the prediction, so equality (not just
++    the reservation lower bound) holds at every step -- exactly the shape of
++    trajectory `warmup_kernels` itself drives the allocator through.
++    """
++    num_lookahead_tokens = NUM_SPEC_STEPS + 1
++    decode_query_len = NUM_SPEC_STEPS + 1
++
++    kv_cache_config = _hybrid_kv_cache_config(num_blocks=256)
++    specs = [g.kv_cache_spec for g in kv_cache_config.kv_cache_groups]
++    manager = make_kv_cache_manager(
++        kv_cache_config,
++        max_model_len=MAX_MODEL_LEN,
++        hash_block_size=BLOCK_SIZE,
++        enable_caching=False,
++    )
++    (request,) = create_requests(
++        num_requests=1, num_tokens=decode_query_len + 1, block_size=BLOCK_SIZE
++    )
++
++    def _step(num_new_tokens: int) -> None:
++        computed_blocks, num_new_computed, _ = manager.get_computed_blocks(request)
++        blocks = manager.allocate_slots(
++            request,
++            num_new_tokens,
++            num_new_computed,
++            computed_blocks,
++            num_lookahead_tokens=num_lookahead_tokens,
++        )
++        assert blocks is not None, "block pool exhausted"
++        held = manager.get_block_ids(request.request_id)
++        num_tokens = request.num_computed_tokens + num_new_tokens
++        for spec, group_held in zip(specs, held):
++            expected = _reserved_block_count(
++                num_tokens,
++                spec,
++                num_lookahead_tokens=num_lookahead_tokens,
++                max_model_len=MAX_MODEL_LEN,
++                max_encoder_len=0,
++            )
++            assert len(group_held) == expected, (
++                f"{type(spec).__name__} "
++                f"mode={getattr(spec, 'mamba_cache_mode', None)}: real manager "
++                f"holds {len(group_held)} blocks for {num_tokens} tokens, "
++                f"_reserved_block_count predicts {expected}"
++            )
++        request.num_computed_tokens = num_tokens
++
++    # Prefill, a spec decode step, a no-draft decode step, and another spec
++    # decode step: the same shapes `warmup_kernels` drives its decode steps
++    # through (see `decode_steps` in `warmup.py`).
++    _step(decode_query_len + 1)
++    _step(decode_query_len)
++    _step(1)
++    _step(decode_query_len)
++
++    manager.free(request)
++
++
++@pytest.mark.parametrize(
++    ("method", "expected"),
++    [
++        ("eagle", NUM_SPEC_STEPS),
++        ("eagle3", NUM_SPEC_STEPS),
++        ("mtp", NUM_SPEC_STEPS),
++        ("dspark", NUM_SPEC_STEPS),
++        ("draft_model", NUM_SPEC_STEPS),
++        # DFlash's in-fill decoding adds a query for the last sampled token.
++        ("dflash", NUM_SPEC_STEPS + 1),
++        ("ngram", 0),
++        ("ngram_gpu", 0),
++        ("medusa", 0),
++        ("mlp_speculator", 0),
++        ("suffix", 0),
++        ("extract_hidden_states", 0),
++    ],
++)
++def test_num_lookahead_tokens_per_method(method: str, expected: int):
++    """`VllmConfig.num_lookahead_tokens` is the single source of the reservation.
++
++    Both the scheduler and the warmup read it, so a wrong answer here silently
++    changes how many blocks every request holds. Exercises the real property
++    and the real `SpeculativeConfig` predicates; the config is built without
++    `__post_init__` because the speculative methods otherwise require a draft
++    model to be resolvable.
++    """
++
++    class _Config:
++        speculative_config: SpeculativeConfig | None = None
++        diffusion_config = None
++        num_speculative_tokens = VllmConfig.num_speculative_tokens
++        num_lookahead_tokens = VllmConfig.num_lookahead_tokens
++
++    speculative_config = object.__new__(SpeculativeConfig)
++    object.__setattr__(speculative_config, "method", method)
++    object.__setattr__(speculative_config, "num_speculative_tokens", NUM_SPEC_STEPS)
++
++    config = _Config()
++    config.speculative_config = speculative_config
++
++    assert config.num_lookahead_tokens == expected
++
++
++def test_num_lookahead_tokens_without_speculation():
++    class _Config:
++        speculative_config: SpeculativeConfig | None = None
++        diffusion_config = None
++        num_speculative_tokens = VllmConfig.num_speculative_tokens
++        num_lookahead_tokens = VllmConfig.num_lookahead_tokens
++
++    config = _Config()
++
++    assert config.num_lookahead_tokens == 0
+diff --git a/vllm/config/vllm.py b/vllm/config/vllm.py
+index d6e55798c..8466617e5 100644
+--- a/vllm/config/vllm.py
++++ b/vllm/config/vllm.py
+@@ -574,6 +574,33 @@ class VllmConfig:
+             return self.diffusion_config.canvas_length
+         return 0
+ 
++    @property
++    def num_lookahead_tokens(self) -> int:
++        """KV slots to reserve past the tokens the target model is scheduled for.
++
++        The drafter writes KV for positions beyond the target model's query
++        range, so every component that reserves blocks must add this margin:
++        the scheduler through `allocate_slots`, and the worker warmup, which
++        builds its own `SchedulerOutput`s. Consumers must read this property
++        rather than re-deriving their own per-method lookahead, so the
++        scheduler and warmup cannot drift apart.
++        """
++        speculative_config = self.speculative_config
++        if speculative_config is None:
++            return 0
++        if speculative_config.use_dflash():
++            # DFlash requires an extra lookahead slot since it uses in-fill-style
++            # decoding instead of standard next-token sampling, so it has a query
++            # for the last sampled token plus queries for each draft token.
++            return self.num_speculative_tokens + 1
++        if speculative_config.use_eagle() or speculative_config.uses_draft_model():
++            # DSpark (covered by use_eagle) drafts a block of num_speculative_tokens
++            # query tokens in which the anchor itself is the first prediction
++            # position (no separate bonus query), so it needs exactly
++            # num_speculative_tokens lookahead slots.
++            return self.num_speculative_tokens
++        return 0
++
+     @property
+     def use_v2_model_runner(self) -> bool:
+         use_v2_model_runner = envs.VLLM_USE_V2_MODEL_RUNNER
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index b4521a2e1..68204a6de 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -244,7 +244,7 @@ class Scheduler(SchedulerInterface):
+         speculative_config = vllm_config.speculative_config
+         self.use_eagle = False
+         self.num_spec_tokens = vllm_config.num_speculative_tokens
+-        self.num_lookahead_tokens = 0
++        self.num_lookahead_tokens = vllm_config.num_lookahead_tokens
+         self.dynamic_sd_lookup: list[int] | None = None
+         if speculative_config is not None:
+             if speculative_config.num_speculative_tokens_per_batch_size:
+@@ -253,21 +253,7 @@ class Scheduler(SchedulerInterface):
+                     vllm_max_batch_size=self.scheduler_config.max_num_seqs,
+                     vllm_num_speculative_tokens=self.num_spec_tokens,
+                 )
+-            if speculative_config.use_eagle():
+-                self.use_eagle = True
+-                self.num_lookahead_tokens = self.num_spec_tokens
+-            if speculative_config.uses_draft_model():
+-                self.num_lookahead_tokens = self.num_spec_tokens
+-            if speculative_config.use_dflash():
+-                # DFlash requires an extra lookahead slot since it uses in-fill-style
+-                # decoding instead of standard next-token sampling, so it has a query
+-                # for the last sampled token plus queries for each draft token.
+-                self.num_lookahead_tokens = self.num_spec_tokens + 1
+-            if speculative_config.use_dspark():
+-                # DSpark drafts a block of num_spec_tokens query tokens in which the
+-                # anchor itself is the first prediction position (no separate bonus
+-                # query), so it needs exactly num_spec_tokens lookahead slots.
+-                self.num_lookahead_tokens = self.num_spec_tokens
++            self.use_eagle = speculative_config.use_eagle()
+ 
+         # Create the KV cache manager.
+         if hash_block_size is None:
+diff --git a/vllm/v1/worker/gpu/warmup.py b/vllm/v1/worker/gpu/warmup.py
+index cb39581c2..152d39fc5 100644
+--- a/vllm/v1/worker/gpu/warmup.py
++++ b/vllm/v1/worker/gpu/warmup.py
+@@ -18,13 +18,61 @@ from vllm.v1.core.sched.output import (
+     NewRequestData,
+     SchedulerOutput,
+ )
+-from vllm.v1.kv_cache_interface import CrossAttentionSpec, MambaSpec
++from vllm.v1.kv_cache_interface import CrossAttentionSpec, KVCacheSpec, MambaSpec
+ from vllm.v1.request import Request
+ from vllm.v1.worker.gpu.model_runner import GPUModelRunner
+ 
+ logger = init_logger(__name__)
+ 
+ 
++def _reserved_block_count(
++    num_tokens: int,
++    kvcache_spec: KVCacheSpec,
++    *,
++    num_lookahead_tokens: int,
++    max_model_len: int,
++    max_encoder_len: int,
++) -> int:
++    """Number of blocks the scheduler would hold for a request of `num_tokens`.
++
++    Warmup hand-builds its `SchedulerOutput`s, so it must reserve what
++    `KVCacheManager.allocate_slots` reserves: the token range plus
++    `num_lookahead_tokens`, where the speculator writes the KV of its drafts.
++    """
++    if isinstance(kvcache_spec, CrossAttentionSpec):
++        # Cross-attention blocks cover the encoder sequence only.
++        return cdiv(max_encoder_len, kvcache_spec.block_size)
++    num_speculative_blocks = 0
++    if isinstance(kvcache_spec, MambaSpec):
++        # MambaManager appends speculative running-state blocks in every cache
++        # mode; align mode sizes from the uncapped, lookahead-free token range.
++        num_speculative_blocks = kvcache_spec.num_speculative_blocks
++        if kvcache_spec.mamba_cache_mode == "align":
++            return cdiv(num_tokens, kvcache_spec.block_size) + num_speculative_blocks
++    num_tokens = min(num_tokens + num_lookahead_tokens, max_model_len)
++    return cdiv(num_tokens, kvcache_spec.block_size) + num_speculative_blocks
++
++
++def _warmup_block_counter(
++    model_runner: GPUModelRunner,
++) -> Callable[[int, KVCacheSpec], int]:
++    """Bind `_reserved_block_count` to `model_runner`'s reservation policy."""
++    num_lookahead_tokens = model_runner.vllm_config.num_lookahead_tokens
++    max_model_len = model_runner.max_model_len
++    max_encoder_len = getattr(model_runner.model_state, "max_encoder_len", 0)
++
++    def block_count(num_tokens: int, kvcache_spec: KVCacheSpec) -> int:
++        return _reserved_block_count(
++            num_tokens,
++            kvcache_spec,
++            num_lookahead_tokens=num_lookahead_tokens,
++            max_model_len=max_model_len,
++            max_encoder_len=max_encoder_len,
++        )
++
++    return block_count
++
++
+ def run_mixed_prefill_decode_warmup(
+     model_runner: GPUModelRunner,
+     worker_execute_model: Callable[[SchedulerOutput], Any],
+@@ -48,21 +96,20 @@ def run_mixed_prefill_decode_warmup(
+ 
+     kv_cache_groups = model_runner.kv_cache_config.kv_cache_groups
+     num_kv_cache_groups = len(kv_cache_groups)
+-    group_block_sizes = [g.kv_cache_spec.block_size for g in kv_cache_groups]
++    block_count = _warmup_block_counter(model_runner)
++    kv_cache_specs = [g.kv_cache_spec for g in kv_cache_groups]
+     decode_prefill_block_counts = [
+-        cdiv(decode_prompt_len, block_size) for block_size in group_block_sizes
++        block_count(decode_prompt_len, s) for s in kv_cache_specs
+     ]
+     decode_block_counts = [
+-        cdiv(decode_prompt_len + decode_scheduled_tokens, block_size)
+-        for block_size in group_block_sizes
++        block_count(decode_prompt_len + decode_scheduled_tokens, s)
++        for s in kv_cache_specs
+     ]
+     decode_block_deltas = [
+         decode - prefill
+         for decode, prefill in zip(decode_block_counts, decode_prefill_block_counts)
+     ]
+-    prefill_block_counts = [
+-        cdiv(prefill_len, block_size) for block_size in group_block_sizes
+-    ]
++    prefill_block_counts = [block_count(prefill_len, s) for s in kv_cache_specs]
+     required_blocks = sum(decode_block_counts) + sum(prefill_block_counts)
+     if model_runner.kv_cache_config.num_blocks <= required_blocks:
+         logger.warning(
+@@ -197,19 +244,10 @@ def warmup_kernels(
+         ]
+ 
+     # Compute per-request block counts for each KV cache group.
+-    def _warmup_block_count(num_tokens: int, spec: Any) -> int:
+-        if isinstance(spec, CrossAttentionSpec):
+-            num_tokens = max_encoder_len
+-        num_blocks = cdiv(num_tokens, spec.block_size)
+-        if isinstance(spec, MambaSpec) and spec.mamba_cache_mode == "align":
+-            # Align mode reserves extra blocks beyond the token range for the
+-            # speculative-decode running-state snapshots.
+-            num_blocks += spec.num_speculative_blocks
+-        return num_blocks
+-
++    block_count = _warmup_block_counter(model_runner)
+     kv_cache_specs = [g.kv_cache_spec for g in kv_cache_groups]
+-    prefill_block_counts = [_warmup_block_count(prompt_len, s) for s in kv_cache_specs]
+-    decode_block_counts = [_warmup_block_count(decode_len, s) for s in kv_cache_specs]
++    prefill_block_counts = [block_count(prompt_len, s) for s in kv_cache_specs]
++    decode_block_counts = [block_count(decode_len, s) for s in kv_cache_specs]
+     max_blocks_per_req = sum(decode_block_counts)
+ 
+     num_reqs = min(
+@@ -313,7 +351,7 @@ def warmup_kernels(
+                 num_tokens = decode_query_len if use_spec else 1
+                 after = req_computed[i] + num_tokens
+                 deltas = [
+-                    _warmup_block_count(after, spec) - held
++                    block_count(after, spec) - held
+                     for spec, held in zip(kv_cache_specs, req_blocks[i])
+                 ]
+                 cached_req_data.new_block_ids.append(
+-- 
+2.55.0
+

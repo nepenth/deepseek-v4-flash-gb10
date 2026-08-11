@@ -29,6 +29,12 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertRegex(lock["VLLM_COMMIT"], r"^[0-9a-f]{40}$")
         self.assertEqual(lock["TORCH_CUDA_ARCH_LIST"], "12.1a")
         self.assertEqual(lock["FLASHINFER_VERSION"], "0.6.16.post3")
+        self.assertEqual(lock["CUTLASS_DSL_VERSION"], "4.6.2")
+        self.assertEqual(lock["QUACK_VERSION"], "0.6.4")
+        self.assertEqual(
+            lock["DEEPGEMM_COMMIT"],
+            "2fd67329ec2942f65ba35d561256ab6ed3b903cb",
+        )
 
     def test_patch_series_is_complete_and_ordered(self) -> None:
         entries = [
@@ -36,7 +42,7 @@ class RuntimeContractTests(unittest.TestCase):
             for line in (RUNTIME / "patches/vllm/series").read_text().splitlines()
             if line.strip() and not line.startswith("#")
         ]
-        self.assertEqual(len(entries), 8)
+        self.assertEqual(len(entries), 23)
         self.assertEqual(len(entries), len(set(entries)))
         for number, entry in enumerate(entries, 1):
             self.assertTrue(entry.startswith(f"{number:04d}-"), entry)
@@ -56,11 +62,17 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("KV_CACHE_DTYPE:-fp8_ds_mla", compose)
         self.assertNotIn("--kv-cache-dtype nvfp4_ds_mla", compose)
         self.assertIn("VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT:-2", compose)
+        self.assertIn(
+            "DSPARK_REVISION:-9e165c30e2704aec5d9d593cce3eebd58bbef1cb",
+            compose,
+        )
 
     def test_nvfp4_status_is_not_overclaimed(self) -> None:
         research = (ROOT / "docs/NVFP4_DS_MLA.md").read_text()
         self.assertRegex(research, re.compile(r"not a packed 4-bit KV cache", re.I))
         self.assertIn("368-byte", research)
+        self.assertIn("448-dimension", research)
+        self.assertIn("512+64", research)
         self.assertIn("experimental research", research)
 
 

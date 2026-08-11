@@ -10,3 +10,23 @@
 0006-fix-make-the-ghost-block-guard-cover-every-group-not.patch
 0007-fix-keep-the-guard-s-shipped-default-at-0-and-fix-th.patch
 0008-fix-turn-the-guard-on-by-default-where-the-race-can-.patch
+
+# Post-v0.27.1 GB10 build and correctness fixes. 0009 and 0010 are open
+# upstream changes with direct SM120/SM121 validation; 0013-0015 are the
+# focused fixes from the maintained jasl SM121 deployment branch. The rest
+# are merged upstream changes absent from the v0.27.1 release branch.
+0009-build-restore-deepgemm-sm120-situ.patch
+0010-dsv4-c128a-capture-stable-stride.patch
+0011-spec-decode-nan-safe-argmax.patch
+0012-packed-kv-zeroing-stride.patch
+0013-drafter-invalidate-layout-metadata-cache.patch
+0014-clamp-tile-local-token-ids.patch
+0015-dsv4-mhc-cuda-warmup.patch
+0016-dspark-parallel-token-id-init.patch
+0017-mrv2-warmup-lookahead-blocks.patch
+0018-sparse-mla-masked-mha-workspace.patch
+0019-sparse-mla-index-remap-contention.patch
+0020-mla-per-request-chunked-context.patch
+0021-adaptive-spec-scheduled-budget.patch
+0022-cutlass-dsl-4.6.2-quack-0.6.4.patch
+0023-dsv4-parser-thinking-default.patch

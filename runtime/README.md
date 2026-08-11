@@ -20,7 +20,7 @@ validation before it inherits any of those performance claims.
 Current runtime inputs:
 
 - vLLM `v0.27.1` at `6e448d0ea9bf3d88d898b65449ca6dc2aec170ac`;
-- CUDA 13.0.3, PyTorch 2.13.0, FlashInfer 0.6.16.post3;
+- CUDA 13.0.3, PyTorch 2.13.0, FlashInfer 0.6.16.post3, CUTLASS DSL 4.6.2;
 - ARM64/GB10 build with `TORCH_CUDA_ARCH_LIST=12.1a`;
 - native `fp8_ds_mla`, DSpark, DeepSeek V4 SM121 sparse MLA, and
   `flashinfer_b12x`;
@@ -28,6 +28,8 @@ Current runtime inputs:
 
 The old `nvfp4_ds_mla` spelling was an FP8 compatibility alias, not a true
 packed 4-bit KV cache. See the parent repo's `docs/NVFP4_DS_MLA.md`.
+The two-node qualification and follow-on kernel plan is in
+`docs/GB10_EXECUTION_PLAN.md` in the parent repo.
 
 ## Historical validated configuration (v0.25.1)
 

@@ -34,7 +34,13 @@ require_absent() {
 
 require_text "torch==$TORCH_VERSION" requirements/cuda.txt
 require_text "flashinfer-python==$FLASHINFER_VERSION" requirements/cuda.txt
-require_text "nvidia-cutlass-dsl[cu13]==$CUTLASS_DSL_VERSION" requirements/cuda.txt
+if [[ "$phase" == "patched" ]]; then
+  require_text "nvidia-cutlass-dsl[cu13]==$CUTLASS_DSL_VERSION" requirements/cuda.txt
+  require_text "quack-kernels==$QUACK_VERSION" requirements/cuda.txt
+else
+  require_text 'nvidia-cutlass-dsl[cu13]==4.6.0' requirements/cuda.txt
+  require_text 'quack-kernels==0.6.1' requirements/cuda.txt
+fi
 require_text "apache-tvm-ffi==$TVM_FFI_VERSION" requirements/cuda.txt
 require_text '12.0a;12.1a' CMakeLists.txt
 require_text 'class FlashInferMLASparseSM120Impl' \
@@ -54,6 +60,25 @@ require_absent 'nvfp4_ds_mla' \
 
 if [[ "$phase" == "patched" ]]; then
   require_text 'REASONING_EFFORT_PROMPTS' vllm/tokenizers/deepseek_v4_encoding.py
+  require_text "$DEEPGEMM_COMMIT" cmake/external_projects/deepgemm.cmake
+  require_text "$DEEPGEMM_COMMIT" tools/install_deepgemm.sh
+  require_text 'active_topk_width = self.c128a_max_compressed' \
+    vllm/models/deepseek_v4/sparse_mla.py
+  require_text 'local_max != local_max' \
+    vllm/v1/worker/gpu/spec_decode/rejection_sampler_utils.py
+  require_text 'seg_block_strides_ptr' vllm/v1/worker/utils.py
+  require_text '_token_to_req_indices_cache = None' \
+    vllm/v1/spec_decode/llm_base_proposer.py
+  require_text 'vocab_size - 1' vllm/v1/worker/gpu/sample/gumbel.py
+  require_text '_uses_mhc_tilelang' \
+    vllm/model_executor/warmup/deepseek_v4_mhc_warmup.py
+  require_text 'GLOBAL_TOPK_MASK_MAX_BYTES = 128 * 1024 * 1024' \
+    vllm/model_executor/layers/attention/sparse_mla_attention.py
+  require_text 'class ContextChunk' \
+    vllm/model_executor/layers/attention/mla_attention.py
+  require_text 'input_budget = self.scheduler_config.max_num_batched_tokens' \
+    vllm/v1/core/sched/scheduler.py
+  require_text '"thinking" not in chat_kwargs' vllm/parser/deepseek_v4.py
   require_text 'VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT' vllm/envs.py
   require_text '_ghost_block_guard_enabled' \
     vllm/v1/core/single_type_kv_cache_manager.py

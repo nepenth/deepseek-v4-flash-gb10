@@ -1,0 +1,43 @@
+From f7a2f8f29e46d6be9542cefb829a714f5ec385a7 Mon Sep 17 00:00:00 2001
+From: wangxiyuan <wangxiyuan1007@gmail.com>
+Date: Tue, 11 Aug 2026 01:33:10 +0800
+Subject: [PATCH 16/23] [BugFix][SpecDecode] Fix dspark
+ parallel_drafting_token_id init bug (#51602)
+
+Signed-off-by: wangxiyuan <wangxiyuan1007@gmail.com>
+Co-authored-by: Benjamin Chislett <bchislett@nvidia.com>
+(cherry picked from commit 355a338b8f54befed4ab23a9f09aff301de26b4f)
+---
+ vllm/v1/spec_decode/llm_base_proposer.py | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/vllm/v1/spec_decode/llm_base_proposer.py b/vllm/v1/spec_decode/llm_base_proposer.py
+index df45c03ed..f036eebd3 100644
+--- a/vllm/v1/spec_decode/llm_base_proposer.py
++++ b/vllm/v1/spec_decode/llm_base_proposer.py
+@@ -354,6 +354,10 @@ class SpecDecodeBaseProposer:
+         dflash_config = getattr(model_hf_config, "dflash_config", None)
+         if dflash_config and "mask_token_id" in dflash_config:
+             self.parallel_drafting_token_id = dflash_config["mask_token_id"]
++        elif getattr(model_hf_config, "mask_token_id", None) is not None:
++            self.parallel_drafting_token_id = model_hf_config.mask_token_id
++        elif hasattr(model_hf_config, "dspark_noise_token_id"):
++            self.parallel_drafting_token_id = model_hf_config.dspark_noise_token_id
+         elif hasattr(model_hf_config, "pard_token"):
+             self.parallel_drafting_token_id = model_hf_config.pard_token
+         elif hasattr(model_hf_config, "ptd_token_id"):
+@@ -361,8 +365,9 @@ class SpecDecodeBaseProposer:
+         else:
+             raise ValueError(
+                 "For parallel drafting, the draft model config must have "
+-                "`pard_token`, `ptd_token_id`, or "
+-                "`dflash_config.mask_token_id` specified in its config.json."
++                "`dflash_config.mask_token_id`, `mask_token_id`, "
++                "`dspark_noise_token_id`, `pard_token`, or `ptd_token_id` "
++                "specified in its config.json."
+             )
+ 
+         if self.pass_hidden_states_to_model:
+-- 
+2.55.0
+

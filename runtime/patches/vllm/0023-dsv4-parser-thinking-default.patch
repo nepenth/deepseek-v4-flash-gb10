@@ -1,0 +1,128 @@
+From 383cd6cf206195767b963b1271a3cf16063b7216 Mon Sep 17 00:00:00 2001
+From: Flora Feng <4florafeng@gmail.com>
+Date: Mon, 10 Aug 2026 15:30:30 -0400
+Subject: [PATCH 23/23] [Bugfix] Align deepseek v4 parser thinking default with
+ tokenizer (#51296)
+
+Signed-off-by: sfeng33 <4florafeng@gmail.com>
+(cherry picked from commit 3f142bd85e962a795c6c484f0249f9c92aed37b2)
+---
+ tests/parser/engine/test_deepseek_v4.py | 59 +++++++++++++++++++++----
+ tests/parser/engine/trace_builder.py    |  2 +-
+ vllm/parser/deepseek_v4.py              |  8 ++--
+ 3 files changed, 57 insertions(+), 12 deletions(-)
+
+diff --git a/tests/parser/engine/test_deepseek_v4.py b/tests/parser/engine/test_deepseek_v4.py
+index e5e7b075b..ba5ebf76e 100644
+--- a/tests/parser/engine/test_deepseek_v4.py
++++ b/tests/parser/engine/test_deepseek_v4.py
+@@ -243,15 +243,29 @@ class TestThinkingModeConfig:
+         cfg = deepseek_v4_config(thinking=False)
+         assert cfg.initial_state.name == "CONTENT"
+ 
+-    def test_enable_thinking_kwarg(self, mock_tokenizer):
+-        p = DeepSeekV4Parser(
+-            mock_tokenizer, chat_template_kwargs={"enable_thinking": True}
++    @pytest.mark.parametrize(
++        ("chat_template_kwargs", "expected_state"),
++        [
++            ({}, "REASONING"),
++            ({"thinking": True}, "REASONING"),
++            ({"enable_thinking": True}, "REASONING"),
++            ({"reasoning_effort": "high"}, "REASONING"),
++            ({"thinking": False}, "CONTENT"),
++            ({"enable_thinking": False}, "CONTENT"),
++            (
++                {"enable_thinking": True, "reasoning_effort": "none"},
++                "CONTENT",
++            ),
++        ],
++    )
++    def test_parser_thinking_mode_matches_tokenizer_default(
++        self, mock_tokenizer, chat_template_kwargs, expected_state
++    ):
++        parser = DeepSeekV4Parser(
++            mock_tokenizer,
++            chat_template_kwargs=chat_template_kwargs,
+         )
+-        assert p.parser_engine_config.initial_state.name == "REASONING"
+-
+-    def test_no_thinking_kwarg_defaults_to_content(self, mock_tokenizer):
+-        p = DeepSeekV4Parser(mock_tokenizer)
+-        assert p.parser_engine_config.initial_state.name == "CONTENT"
++        assert parser.parser_engine_config.initial_state.name == expected_state
+ 
+     def test_thinking_mode_reasoning_without_tags(self, mock_tokenizer):
+         parser = DeepSeekV4Parser(
+@@ -838,6 +852,35 @@ class TestDelegatingParserLargeDelta:
+         args = json.loads(output.tool_calls[0]["arguments"])
+         assert args == {"location": "Berlin", "units": "celsius"}
+ 
++    def test_default_thinking_extracts_tool_call_without_think_end(self, dsv4_tokens):
++        tokens = [
++            token
++            for token in dsv4_tokens
++            if token[0] != _DSV4_FULL_VOCAB[DSML_THINK_END]
++        ]
++        tokenizer = MockTokenizer(
++            vocab=dict(_DSV4_FULL_VOCAB),
++            tokens=tokens,
++        )
++        parser = _DeepSeekV4Delegating(tokenizer)
++
++        deltas = replay_streaming(
++            parser,
++            tokens,
++            chunk_size=1,
++            finished_on_last=True,
++            tools=DUMMY_TOOLS,
++            prompt_token_ids=[_DSV4_FULL_VOCAB[DSML_THINK_START]],
++        )
++        output = collect_output(deltas)
++
++        assert "The user wants" in output.reasoning
++        assert output.content == ""
++        assert len(output.tool_calls) == 1
++        assert output.tool_calls[0]["name"] == "get_weather"
++        args = json.loads(output.tool_calls[0]["arguments"])
++        assert args == {"location": "Berlin", "units": "celsius"}
++
+     def test_eos_drop_token_does_not_swallow_tool_calls(self):
+         """Tool calls must survive when an EOS DROP token's ID is in
+         delta_token_ids but its text is absent from delta_text.
+diff --git a/tests/parser/engine/trace_builder.py b/tests/parser/engine/trace_builder.py
+index f24e3318f..6d5415dfd 100644
+--- a/tests/parser/engine/trace_builder.py
++++ b/tests/parser/engine/trace_builder.py
+@@ -722,7 +722,7 @@ def _dsv4_segments(scenario: Scenario, thinking: bool) -> list[tuple[str, bool]]
+ 
+ def _build_deepseek_v4(scenario: Scenario, validate: bool = True) -> Sample:
+     thinking = scenario.reasoning is not None
+-    chat_kwargs = {"thinking": True} if thinking else None
++    chat_kwargs = {"thinking": thinking}
+ 
+     if thinking:
+         expected_reasoning: str | None = scenario.reasoning or ""
+diff --git a/vllm/parser/deepseek_v4.py b/vllm/parser/deepseek_v4.py
+index c65668708..9955d9385 100644
+--- a/vllm/parser/deepseek_v4.py
++++ b/vllm/parser/deepseek_v4.py
+@@ -217,10 +217,12 @@ class DeepSeekV4Parser(ParserEngine):
+         **kwargs,
+     ) -> None:
+         chat_kwargs = kwargs.pop("chat_template_kwargs", None) or {}
+-        thinking = (
+-            bool(chat_kwargs.get("thinking") or chat_kwargs.get("enable_thinking"))
+-            and chat_kwargs.get("reasoning_effort") != "none"
++        thinking = bool(
++            chat_kwargs.get("thinking") or chat_kwargs.get("enable_thinking")
+         )
++        if "thinking" not in chat_kwargs and "enable_thinking" not in chat_kwargs:
++            thinking = True
++        thinking = thinking and chat_kwargs.get("reasoning_effort") != "none"
+         super().__init__(
+             tokenizer,
+             tools,
+-- 
+2.55.0
+

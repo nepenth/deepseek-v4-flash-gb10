@@ -1,0 +1,121 @@
+From 426deea66057781d05653c2aa105b42e129febb4 Mon Sep 17 00:00:00 2001
+From: jasl <jasl9187@hotmail.com>
+Date: Fri, 7 Aug 2026 05:30:31 +0800
+Subject: [PATCH 14/23] fix: clamp tile-local argmax token ids to vocab_size -
+ 1
+
+The tile reductions compose token_id = block_idx * BLOCK_SIZE + idx,
+where the tile's out-of-vocab tail lanes are loaded as -inf. When every
+in-vocab lane is also -inf/NaN, the reduction can settle on a tail lane
+and emit token_id >= vocab_size. Nothing downstream bounds a sampled
+token id, and DeepSeek-V4's hash-MoE router gathers
+tid2eid[token_id * topk] directly, so the id reads past the table and
+faults every TP rank at once. Clamp at all three sites (gumbel sample,
+target-argmax stats, resample): in a fully degenerate tile any index is
+equally arbitrary, so clamping loses nothing. Chi-squared distribution
+tests pass unchanged with the clamp in place.
+
+Adjacent to d8885a3335 and upstream #50183 but distinct: those keep NaN
+from winning the reduction; this bounds the id the winner composes.
+
+Reported by alexbi29 in vllm-project/vllm#41834, verified on their
+SM120 production cluster.
+
+Co-authored-by: alexbi29 <alexbi29@users.noreply.github.com>
+Co-authored-by: Claude <noreply@anthropic.com>
+(cherry picked from commit d7bddfeff2f3c43809537476b58eb89f86d62181)
+---
+ .../test_sampled_token_id_bounds.py           | 38 +++++++++++++++++++
+ vllm/v1/worker/gpu/sample/gumbel.py           |  6 ++-
+ .../spec_decode/rejection_sampler_utils.py    |  6 ++-
+ 3 files changed, 47 insertions(+), 3 deletions(-)
+ create mode 100644 tests/v1/spec_decode/test_sampled_token_id_bounds.py
+
+diff --git a/tests/v1/spec_decode/test_sampled_token_id_bounds.py b/tests/v1/spec_decode/test_sampled_token_id_bounds.py
+new file mode 100644
+index 000000000..c614b74d9
+--- /dev/null
++++ b/tests/v1/spec_decode/test_sampled_token_id_bounds.py
+@@ -0,0 +1,38 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Tile-local argmax must never emit a token id >= vocab_size.
++
++The reductions compute ``token_id = block_idx * BLOCK_SIZE + idx`` where the
++tile's out-of-vocab tail lanes are loaded as -inf. When every in-vocab lane is
++also -inf/NaN, the reduction can settle on a tail lane. Nothing downstream
++bounds a sampled token id, and DeepSeek-V4's hash-MoE router gathers
++``tid2eid[token_id * topk]`` directly, so an unbounded id faults the context.
++Reported by alexbi29 in vllm-project/vllm#41834; adjacent to d8885a3335 and
++upstream #50183 but distinct — those keep NaN from winning the reduction,
++this bounds the id the winner composes."""
++
++import re
++
++MODULES = (
++    "vllm/v1/worker/gpu/sample/gumbel.py",
++    "vllm/v1/worker/gpu/spec_decode/rejection_sampler_utils.py",
++)
++
++UNBOUNDED = re.compile(r"token_id\s*=\s*block_idx \* BLOCK_SIZE \+ idx\b")
++BOUNDED = re.compile(
++    r"token_id\s*=\s*tl\.minimum\(block_idx \* BLOCK_SIZE \+ idx, vocab_size - 1\)"
++)
++
++
++def test_every_tile_argmax_token_id_is_clamped():
++    import vllm
++
++    root = vllm.__path__[0].rsplit("/vllm", 1)[0]
++    for rel in MODULES:
++        with open(f"{root}/{rel}") as f:
++            src = f.read()
++        assert not UNBOUNDED.search(src), (
++            f"{rel} composes an unclamped tile-local token id; a degenerate "
++            "tile can emit id >= vocab_size and fault the hash-MoE gather"
++        )
++        assert BOUNDED.search(src), f"{rel} lost the clamped composition"
+diff --git a/vllm/v1/worker/gpu/sample/gumbel.py b/vllm/v1/worker/gpu/sample/gumbel.py
+index 190307d5e..7ca58fde7 100644
+--- a/vllm/v1/worker/gpu/sample/gumbel.py
++++ b/vllm/v1/worker/gpu/sample/gumbel.py
+@@ -207,7 +207,11 @@ def _gumbel_sample_kernel(
+         USE_FP64=USE_FP64,
+         PER_TOKEN_COL=PER_TOKEN_COL,
+     )
+-    token_id = block_idx * BLOCK_SIZE + idx
++    # A fully degenerate tile (every in-vocab lane -inf/NaN) can settle the
++    # reduction on an out-of-vocab tail lane; nothing downstream bounds a
++    # sampled id and the hash-MoE router gathers tid2eid[token_id * topk]
++    # directly. Clamp: in a degenerate tile any index is equally arbitrary.
++    token_id = tl.minimum(block_idx * BLOCK_SIZE + idx, vocab_size - 1)
+     tl.store(local_argmax_ptr + token_idx * local_argmax_stride + block_idx, token_id)
+     tl.store(local_max_ptr + token_idx * local_max_stride + block_idx, value)
+ 
+diff --git a/vllm/v1/worker/gpu/spec_decode/rejection_sampler_utils.py b/vllm/v1/worker/gpu/spec_decode/rejection_sampler_utils.py
+index 0ca3932a6..e6acda3ca 100644
+--- a/vllm/v1/worker/gpu/spec_decode/rejection_sampler_utils.py
++++ b/vllm/v1/worker/gpu/spec_decode/rejection_sampler_utils.py
+@@ -242,7 +242,8 @@ def _compute_local_logits_stats_kernel(
+             other=float("-inf"),
+         ).to(tl.float32)
+         value, idx = tl.max(target_logits, axis=0, return_indices=True)
+-        token_id = block_idx * BLOCK_SIZE + idx
++        # See gumbel.py: degenerate tiles must not emit ids >= vocab_size.
++        token_id = tl.minimum(block_idx * BLOCK_SIZE + idx, vocab_size - 1)
+         tl.store(
+             target_local_argmax_ptr
+             + logit_idx * target_local_argmax_stride
+@@ -791,7 +792,8 @@ def _resample_kernel(
+         APPLY_TEMPERATURE=False,
+         USE_FP64=USE_FP64,
+     )
+-    token_id = block_idx * BLOCK_SIZE + idx
++    # See gumbel.py: degenerate tiles must not emit ids >= vocab_size.
++    token_id = tl.minimum(block_idx * BLOCK_SIZE + idx, vocab_size - 1)
+     tl.store(
+         resampled_local_argmax_ptr
+         + req_idx * resampled_local_argmax_stride
+-- 
+2.55.0
+

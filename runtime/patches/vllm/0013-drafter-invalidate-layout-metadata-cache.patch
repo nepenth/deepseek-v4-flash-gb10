@@ -1,0 +1,208 @@
+From 1ef6134a6df6d4ebc61e876ea9b5bc10633863ff Mon Sep 17 00:00:00 2001
+From: jasl <jasl9187@hotmail.com>
+Date: Fri, 7 Aug 2026 07:09:34 +0800
+Subject: [PATCH 13/23] fix: invalidate layout-derived metadata caches on the
+ drafter's rewrite
+
+The multi-step drafter rewrites CommonAttentionMetadata IN PLACE at loop
+entry: the ragged first-pass layout (one row per token) becomes one row
+per request. token_to_req_indices() caches its mapping on that same
+object, so loop steps hit the first pass's ragged mapping sliced to
+batch_size. Pure-decode batches alias the two layouts (identity either
+way) -- every pure-decode test and probe was structurally blind. In a
+mixed batch, draft rows > 0 inherit an EARLIER request's identity; the
+SWA window kernel then computes pos = that request's seq_len - 1 + 1,
+one slot past its last written token, and the draft attention reads
+unwritten fp8 KV: ~2/256 random byte patterns decode to NaN and one NaN
+turns the entire hidden row non-finite.
+
+This was the drafter-side source of the all-NaN draft_probs rows behind
+the <|begin of sentence|> leak (vllm-project/vllm#41834): drafter NaN row
+-> exponential-noise argmax degenerates to token 0 -> rejected ->
+recovered sampling used to re-emit it (fixed separately in d8885a3335).
+Measured signature, all explained: step-1 only (first pass primes its
+own cache correctly), rows>0 only (mapping[0]=0 is self), both TP ranks
+in the same step (deterministic stale mapping), persists under
+--enforce-eager (no graphs involved), window overshoot equal to the
+borrowed request's length.
+
+Invalidate both layout-derived caches at the rewrite, and stop replace()
+from carrying them into the extended layout in extend_all_queries_by_N
+(the parallel-drafting twin of the same hazard).
+
+A/B on the live repro (MTP nst=2, 20 concurrent mixed requests, eager):
+unfixed 145-159 NaN-row events per run across three instrumentation
+levels; fixed 0 events on both ranks, 20/20 completions.
+
+Co-authored-by: Claude <noreply@anthropic.com>
+(cherry picked from commit 264942766e8f6ac58db5e41427bd480f6220ab9f)
+---
+ .../test_drafter_layout_cache_invalidation.py | 115 ++++++++++++++++++
+ vllm/v1/spec_decode/llm_base_proposer.py      |  11 ++
+ vllm/v1/spec_decode/utils.py                  |   6 +
+ 3 files changed, 132 insertions(+)
+ create mode 100644 tests/v1/spec_decode/test_drafter_layout_cache_invalidation.py
+
+diff --git a/tests/v1/spec_decode/test_drafter_layout_cache_invalidation.py b/tests/v1/spec_decode/test_drafter_layout_cache_invalidation.py
+new file mode 100644
+index 000000000..cabf301d9
+--- /dev/null
++++ b/tests/v1/spec_decode/test_drafter_layout_cache_invalidation.py
+@@ -0,0 +1,115 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""The token->request mapping cache must not survive a query-layout rewrite.
++
++CommonAttentionMetadata.token_to_req_indices() caches its result on the
++object. The drafter's multi-step loop rewrites the SAME object in place from
++the ragged first-pass layout (one row per token) to one row per request; a
++stale cache hit hands draft rows > 0 an EARLIER request's identity in mixed
++batches. The SWA window then anchors at that request's seq_len -- one slot
++past its last written token -- and the draft attention reads unwritten fp8,
++poisoning the entire hidden row with NaN. Pure-decode batches alias the two
++layouts (mapping is the identity in both), which kept this invisible in
++every pure-decode test and probe."""
++
++import ast
++import inspect
++
++import torch
++
++from vllm.v1.attention.backend import CommonAttentionMetadata
++
++
++def _ragged_cad() -> CommonAttentionMetadata:
++    # request 0 carries 3 tokens (a prefill chunk or accepted spec tokens),
++    # requests 1-2 carry 1 each: the smallest mixed batch.
++    qsl = torch.tensor([0, 3, 4, 5], dtype=torch.int32)
++    return CommonAttentionMetadata(
++        query_start_loc=qsl,
++        query_start_loc_cpu=qsl.clone(),
++        seq_lens=torch.tensor([100, 50, 60], dtype=torch.int32),
++        num_reqs=3,
++        num_actual_tokens=5,
++        max_query_len=3,
++        max_seq_len=100,
++        block_table_tensor=torch.zeros((3, 4), dtype=torch.int32),
++        slot_mapping=torch.zeros(5, dtype=torch.int64),
++        causal=True,
++    )
++
++
++def test_layout_rewrite_with_invalidation_yields_identity_mapping():
++    cad = _ragged_cad()
++    buf = torch.zeros(16, dtype=torch.int32)
++    ragged = cad.token_to_req_indices(buf)
++    assert ragged.tolist() == [0, 0, 0, 1, 2]
++
++    # The drafter loop-entry rewrite, including the cache invalidation.
++    batch_size = 3
++    cad.num_actual_tokens = batch_size
++    cad.max_query_len = 1
++    cad.query_start_loc = torch.arange(batch_size + 1, dtype=torch.int32)
++    cad.query_start_loc_cpu = torch.arange(batch_size + 1, dtype=torch.int32)
++    cad._token_to_req_indices_cache = None
++    cad._num_computed_tokens_cache = None
++
++    per_row = cad.token_to_req_indices(torch.zeros(16, dtype=torch.int32))
++    assert per_row.tolist() == [0, 1, 2], (
++        "row r must map to request r after the per-row rewrite; a stale "
++        "ragged mapping gives rows > 0 an earlier request's identity"
++    )
++
++
++def test_proposer_loop_entry_invalidates_the_mapping_cache():
++    """AST pin: the drafter's in-place layout rewrite must clear both caches."""
++    from vllm.v1.spec_decode import llm_base_proposer
++
++    src = inspect.getsource(llm_base_proposer)
++    tree = ast.parse(src)
++    hits = set()
++    for node in ast.walk(tree):
++        if isinstance(node, ast.Assign):
++            for t in node.targets:
++                if (
++                    isinstance(t, ast.Attribute)
++                    and t.attr in (
++                        "_token_to_req_indices_cache",
++                        "_num_computed_tokens_cache",
++                    )
++                    and isinstance(t.value, ast.Attribute)
++                    and t.value.attr == "common_attn_metadata"
++                    == False  # value is Name for local var; handle both
++                ):
++                    pass
++        if isinstance(node, ast.Assign):
++            for t in node.targets:
++                if isinstance(t, ast.Attribute) and t.attr in (
++                    "_token_to_req_indices_cache",
++                    "_num_computed_tokens_cache",
++                ):
++                    hits.add(t.attr)
++    assert hits == {
++        "_token_to_req_indices_cache",
++        "_num_computed_tokens_cache",
++    }, (
++        f"proposer no longer invalidates the layout-derived caches ({hits}); "
++        "the ragged->per-row rewrite will serve stale request identities"
++    )
++
++
++def test_extend_all_queries_does_not_carry_the_cache():
++    from vllm.v1.spec_decode.utils import extend_all_queries_by_N
++
++    cad = _ragged_cad()
++    cad.token_to_req_indices(torch.zeros(16, dtype=torch.int32))
++    assert cad._token_to_req_indices_cache is not None
++    new_cad = extend_all_queries_by_N(
++        cad,
++        N=1,
++        arange=torch.arange(8, dtype=torch.int32),
++        new_slot_mapping=torch.zeros(8, dtype=torch.int64),
++    )
++    assert new_cad._token_to_req_indices_cache is None, (
++        "replace() carried the old layout's token->request cache into the "
++        "extended layout"
++    )
+diff --git a/vllm/v1/spec_decode/llm_base_proposer.py b/vllm/v1/spec_decode/llm_base_proposer.py
+index c02c3350d..df45c03ed 100644
+--- a/vllm/v1/spec_decode/llm_base_proposer.py
++++ b/vllm/v1/spec_decode/llm_base_proposer.py
+@@ -666,6 +666,17 @@ class SpecDecodeBaseProposer:
+         common_attn_metadata.query_start_loc_cpu = torch.from_numpy(
+             self.token_arange_np[: batch_size + 1]
+         ).clone()
++        # The layout just changed from the ragged first pass (one row per
++        # TOKEN) to one row per REQUEST, so every mapping derived from the
++        # old query_start_loc is now wrong. token_to_req_indices() caches its
++        # result on this object; a stale hit hands draft rows > 0 an EARLIER
++        # request's identity in mixed batches (pure-decode batches alias the
++        # two layouts, which is why this never fired there). The SWA window
++        # then anchors at that request's seq_len -- one past its last written
++        # slot -- and the drafter attends over unwritten fp8, poisoning the
++        # whole hidden row with NaN.
++        common_attn_metadata._token_to_req_indices_cache = None
++        common_attn_metadata._num_computed_tokens_cache = None
+ 
+         # In padded drafter batch, we need to adjust the sequence lengths
+         # to remove the "padding" (i.e. rejected tokens).
+diff --git a/vllm/v1/spec_decode/utils.py b/vllm/v1/spec_decode/utils.py
+index 65b9408a8..20bd238f9 100644
+--- a/vllm/v1/spec_decode/utils.py
++++ b/vllm/v1/spec_decode/utils.py
+@@ -292,6 +292,12 @@ def extend_all_queries_by_N(
+     new_cad = cad.replace(
+         query_start_loc=new_query_start_loc,
+         query_start_loc_cpu=new_query_start_loc_cpu,
++        # replace() copies dataclass fields, including the token->request
++        # mapping cache keyed to the OLD query layout; carrying it into the
++        # extended layout serves stale request identities (see the drafter
++        # loop-entry invalidation for the failure mode).
++        _token_to_req_indices_cache=None,
++        _num_computed_tokens_cache=None,
+         seq_lens=cad.seq_lens + N,
+         # each request is extended by N tokens -> batch_size * N tokens are added
+         num_actual_tokens=cad.num_actual_tokens + cad.batch_size() * N,
+-- 
+2.55.0
+
