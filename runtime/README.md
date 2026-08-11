@@ -10,6 +10,11 @@ The benchmark results and overlay below describe the validated v0.25.1 image
 and remain as historical evidence. The v0.27.1 image needs fresh two-node GB10
 validation before it inherits any of those performance claims.
 
+The imported `docker-compose.yml` and `scripts/start-node.sh` are not the
+v0.27.1 serving path. The legacy start script fails closed unless
+`ALLOW_LEGACY_RUNTIME_COMPOSE=1` is explicitly set. Use the parent repository's
+`docker-compose.dspark.yml` through `vllm-switch` for the current candidate.
+
 ## Current development build
 
 ```bash
@@ -83,10 +88,10 @@ Start rank 1 first, then rank 0:
 
 ```bash
 # Worker
-./scripts/start-node.sh config/worker.env
+ALLOW_LEGACY_RUNTIME_COMPOSE=1 ./scripts/start-node.sh config/worker.env
 
 # Wait until rank 1 is listening for the rendezvous, then on the head:
-./scripts/start-node.sh config/head.env
+ALLOW_LEGACY_RUNTIME_COMPOSE=1 ./scripts/start-node.sh config/head.env
 ```
 
 The head API is available at `http://HEAD_HOST:8888`. A successful startup

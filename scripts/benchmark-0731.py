@@ -8,6 +8,17 @@ import urllib.request
 from pathlib import Path
 
 
+def percentile(values, fraction):
+    ordered = sorted(values)
+    if not ordered:
+        return 0.0
+    position = (len(ordered) - 1) * fraction
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = position - lower
+    return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
+
+
 def request_json(url, body):
     for attempt in range(4):
         request = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
@@ -74,7 +85,20 @@ async def run_case(base_url, model, target_prompt_tokens, concurrency):
     results = await asyncio.gather(*[asyncio.to_thread(stream_one, base_url, model, prompt) for prompt in prompts])
     elapsed = time.perf_counter() - started
     total = sum(item["output_tokens"] for item in results)
-    return {"concurrency": concurrency, "elapsed_s": elapsed, "aggregate_tok_s": total / max(0.001, elapsed), "median_ttft_s": statistics.median(item["ttft_s"] for item in results), "median_prefill_tok_s": statistics.median(item["prefill_tok_s"] for item in results), "median_output_tok_s": statistics.median(item["output_tok_s"] for item in results), "requests": results}
+    ttfts = [item["ttft_s"] for item in results]
+    output_rates = [item["output_tok_s"] for item in results]
+    return {
+        "concurrency": concurrency,
+        "elapsed_s": elapsed,
+        "aggregate_tok_s": total / max(0.001, elapsed),
+        "median_ttft_s": statistics.median(ttfts),
+        "p95_ttft_s": percentile(ttfts, 0.95),
+        "p99_ttft_s": percentile(ttfts, 0.99),
+        "median_prefill_tok_s": statistics.median(item["prefill_tok_s"] for item in results),
+        "median_output_tok_s": statistics.median(output_rates),
+        "p05_output_tok_s": percentile(output_rates, 0.05),
+        "requests": results,
+    }
 
 
 async def main():

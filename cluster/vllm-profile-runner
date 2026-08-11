@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+set -euo pipefail
+
+MODELS_DIR="${VLLM_SWITCH_PROFILES_DIR:-$HOME/vllm-models}"
+SWITCH_CONFIG="${VLLM_SWITCH_CONFIG:-$MODELS_DIR/vllm-switch.env}"
+declare -ga VLLM_SWITCH_GENERIC_ENV=()
+if [[ -f "$SWITCH_CONFIG" ]]; then
+  # shellcheck disable=SC1090
+  source "$SWITCH_CONFIG"
+fi
+STATE_FILE="${VLLM_SWITCH_STATE_FILE:-$MODELS_DIR/.active-profile}"
+WORKER_SSH="${VLLM_SWITCH_WORKER_SSH:-${WORKER_SSH:-}}"
+
+die() {
+  echo "vllm-profile-runner: $*" >&2
+  exit 1
+}
+
+load_profile() {
+  local name="$1"
+  [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid profile name: $name"
+  PROFILE_FILE="$MODELS_DIR/$name.conf"
+  [[ -f "$PROFILE_FILE" ]] || die "missing profile: $PROFILE_FILE"
+  declare -ga SERVICE_ENV=()
+  # Profiles are trusted, administrator-owned shell configuration.
+  # shellcheck disable=SC1090
+  source "$PROFILE_FILE"
+  PROFILE_NAME="$name"
+  SERVICE_MODE="${SERVICE_MODE:-generic}"
+  RESTART_POLICY="${RESTART_POLICY:-on-failure}"
+  export PROFILE_NAME
+
+  local item key value
+  for item in "${SERVICE_ENV[@]}"; do
+    [[ "$item" == *=* ]] || die "invalid SERVICE_ENV item: $item"
+    key="${item%%=*}"
+    value="${item#*=}"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "invalid environment name: $key"
+    printf -v "$key" '%s' "$value"
+    export "$key"
+  done
+}
+
+record_active() {
+  local tmp
+  tmp="${STATE_FILE}.tmp.$$"
+  printf '%s\n' "$PROFILE_NAME" >"$tmp"
+  mv -f "$tmp" "$STATE_FILE"
+}
+
+clear_active() {
+  if [[ -f "$STATE_FILE" ]] && [[ "$(cat "$STATE_FILE")" == "$PROFILE_NAME" ]]; then
+    rm -f "$STATE_FILE"
+  fi
+}
+
+run_generic() {
+  local vllm_dir="${VLLM_DIR_OVERRIDE:-$HOME/spark-vllm-docker}"
+  local -a vllm_args launch_args model_names extra_argv mods env_items
+  local item key value
+
+  for item in "${VLLM_SWITCH_GENERIC_ENV[@]}"; do
+    [[ "$item" == *=* ]] || die "invalid VLLM_SWITCH_GENERIC_ENV item: $item"
+    key="${item%%=*}"
+    value="${item#*=}"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "invalid generic environment name: $key"
+    printf -v "$key" '%s' "$value"
+    export "$key"
+  done
+  export VLLM_SPARK_EXTRA_DOCKER_ARGS="-v /opt/models:/opt/models ${EXTRA_DOCKER_ARGS:-}"
+
+  vllm_args=(vllm serve "${MODEL_ARGUMENT:-$MODEL_PATH}")
+  read -r -a model_names <<<"$MODEL_NAME"
+  vllm_args+=(--served-model-name "${model_names[@]}")
+  vllm_args+=(--host "${VLLM_HOST:-0.0.0.0}" --port "${VLLM_PORT:-8000}")
+  vllm_args+=(--tensor-parallel-size "${TENSOR_PARALLEL_SIZE:-2}")
+  if [[ "${DISTRIBUTED_BACKEND:-ray}" != "none" ]]; then
+    vllm_args+=(--distributed-executor-backend "${DISTRIBUTED_BACKEND:-ray}")
+  fi
+  vllm_args+=(--trust-remote-code)
+  [[ -n "${REASONING_PARSER:-}" ]] && vllm_args+=(--reasoning-parser "$REASONING_PARSER")
+  if [[ -n "${TOOL_PARSER:-}" ]]; then
+    vllm_args+=(--enable-auto-tool-choice --tool-call-parser "$TOOL_PARSER")
+  fi
+  vllm_args+=(--max-model-len "$MAX_MODEL_LEN" --max-num-seqs "$MAX_NUM_SEQS")
+  if [[ "${ENABLE_PREFIX_CACHING:-1}" != "0" && "${ENABLE_PREFIX_CACHING:-1}" != "false" ]]; then
+    vllm_args+=(--enable-prefix-caching)
+  fi
+  if [[ "${EXTRA_VLLM_ARGS:-}" != *"--gpu-memory-utilization-gb"* ]]; then
+    vllm_args+=(--gpu-memory-utilization "$GPU_UTIL")
+  fi
+  vllm_args+=(--kv-cache-dtype "$KV_CACHE_DTYPE")
+  [[ -n "${ATTENTION_BACKEND:-}" ]] && vllm_args+=(--attention-backend "$ATTENTION_BACKEND")
+  [[ -n "${LOAD_FORMAT:-}" && "$LOAD_FORMAT" != "auto" ]] && vllm_args+=(--load-format "$LOAD_FORMAT")
+  [[ -n "${MAX_NUM_BATCHED_TOKENS:-}" ]] && vllm_args+=(--max-num-batched-tokens "$MAX_NUM_BATCHED_TOKENS")
+  [[ -n "${DEFAULT_CHAT_TEMPLATE_KWARGS:-}" ]] && vllm_args+=(--default-chat-template-kwargs "$DEFAULT_CHAT_TEMPLATE_KWARGS")
+  if [[ -n "${EXTRA_VLLM_ARGS:-}" ]]; then
+    eval "extra_argv=($EXTRA_VLLM_ARGS)"
+    vllm_args+=("${extra_argv[@]}")
+  fi
+
+  launch_args=("$vllm_dir/launch-cluster.sh" -t "${DOCKER_IMAGE:-vllm-node}" --non-privileged --shm-size-gb 32)
+  if [[ -n "${LAUNCH_CLUSTER_ARGS:-}" ]]; then
+    eval "extra_argv=($LAUNCH_CLUSTER_ARGS)"
+    launch_args+=("${extra_argv[@]}")
+  fi
+  [[ "${DISTRIBUTED_BACKEND:-ray}" == "none" ]] && launch_args+=(--no-ray)
+  if [[ -n "${MODS:-}" ]]; then
+    IFS=: read -r -a mods <<<"$MODS"
+    for item in "${mods[@]}"; do launch_args+=(--apply-mod "$item"); done
+  fi
+  if [[ -n "${EXTRA_ENV:-}" ]]; then
+    IFS=: read -r -a env_items <<<"$EXTRA_ENV"
+    for item in "${env_items[@]}"; do launch_args+=(-e "$item"); done
+  fi
+  if [[ -n "${EXTRA_ENV_LINES:-}" ]]; then
+    while IFS= read -r item; do
+      [[ -n "$item" ]] && launch_args+=(-e "$item")
+    done <<<"$EXTRA_ENV_LINES"
+  fi
+
+  record_active
+  exec "${launch_args[@]}" exec "${vllm_args[@]}"
+}
+
+start_profile() {
+  trap 'clear_active' ERR
+  cd "${WORKING_DIRECTORY:-$MODELS_DIR}"
+  if [[ -n "${PRE_START_COMMAND:-}" ]]; then
+    bash -lc "$PRE_START_COMMAND"
+  fi
+
+  case "$SERVICE_MODE" in
+    scripted)
+      bash -lc "${START_COMMAND:?START_COMMAND is required for scripted profiles}"
+      record_active
+      exec bash -lc "${TRACK_COMMAND:?TRACK_COMMAND is required for scripted profiles}"
+      ;;
+    generic)
+      run_generic
+      ;;
+    *) die "unsupported SERVICE_MODE: $SERVICE_MODE" ;;
+  esac
+}
+
+stop_profile() {
+  trap clear_active EXIT
+  cd "${WORKING_DIRECTORY:-$MODELS_DIR}"
+  case "$SERVICE_MODE" in
+    scripted)
+      [[ -n "${STOP_COMMAND:-}" ]] && bash -lc "$STOP_COMMAND"
+      ;;
+    generic)
+      [[ -n "$WORKER_SSH" ]] || die "VLLM_SWITCH_WORKER_SSH is required for generic profiles"
+      docker rm -f "${CONTAINER_NAME:-vllm_node}" >/dev/null 2>&1 || true
+      ssh -o BatchMode=yes "$WORKER_SSH" \
+        "docker rm -f '${CONTAINER_NAME:-vllm_node}' >/dev/null 2>&1 || true" || true
+      ;;
+    *) die "unsupported SERVICE_MODE: $SERVICE_MODE" ;;
+  esac
+}
+
+[[ $# -eq 2 ]] || die "usage: $0 {start|stop} PROFILE"
+action="$1"
+load_profile "$2"
+case "$action" in
+  start) start_profile ;;
+  stop) stop_profile ;;
+  *) die "unknown action: $action" ;;
+esac

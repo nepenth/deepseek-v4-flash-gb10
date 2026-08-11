@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/.env.dspark}"
-CHAT_URL="${CHAT_URL:-http://127.0.0.1:8888/v1/chat/completions}"
+CHAT_URL="${CHAT_URL:-${BASE_URL:-http://127.0.0.1:8888/v1}/chat/completions}"
 CONCURRENCY="${CONCURRENCY:-6}"
 
 if [ -f "$ENV_FILE" ]; then
@@ -13,7 +13,7 @@ if [ -f "$ENV_FILE" ]; then
   set +a
 fi
 
-MODEL="${SERVED_MODEL_NAME:-deepseek-v4-flash-dspark}"
+MODEL="${MODEL:-${SERVED_MODEL_NAME:-deepseek-v4-flash-dspark}}"
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 

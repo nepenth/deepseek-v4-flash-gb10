@@ -18,6 +18,10 @@ services:
 
     volumes:
       - ${HF_CACHE:-${HOME}/.cache/huggingface}:/cache/huggingface
+      # A local checkpoint mount is the qualification path on the Spark pair.
+      # When DSPARK_MODEL_HOST is unset this harmlessly mirrors HF_CACHE; the
+      # command continues to use the configured Hub model name.
+      - ${DSPARK_MODEL_HOST:-${HF_CACHE:-${HOME}/.cache/huggingface}}:${DSPARK_MODEL_CONTAINER:-/models/dspark-checkpoint}:ro
       # Experimental GB10 hybrid-weight plugin tree for
       # ENABLE_VLLM_GB10_PATCH=1 only.
       - ${VLLM_GB10_PATCH_DIR:-./vllm_patch_gb10}:/opt/vllm-gb10-hybrid-nvfp4

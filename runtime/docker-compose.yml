@@ -1,4 +1,7 @@
 # SPDX-License-Identifier: MIT
+# HISTORICAL v0.25/Stage-C REFERENCE ONLY.
+# The vLLM 0.27.1 candidate uses ../docker-compose.dspark.yml. This file keeps
+# the imported Anemll runtime reproducible and must not launch the new image.
 name: dspark-vllm-gx10
 
 services:

@@ -2,6 +2,7 @@
 .env.dspark.works
 .env
 .secrets/
+.private/
 *.pem
 *.key
 id_*

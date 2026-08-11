@@ -1,0 +1,316 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+set -euo pipefail
+
+SELF_DIR="$(cd "$(dirname "$(realpath "$0")")" && pwd)"
+MODELS_DIR="${VLLM_SWITCH_PROFILES_DIR:-$SELF_DIR}"
+SWITCH_CONFIG="${VLLM_SWITCH_CONFIG:-$MODELS_DIR/vllm-switch.env}"
+if [[ -f "$SWITCH_CONFIG" ]]; then
+  # shellcheck disable=SC1090
+  source "$SWITCH_CONFIG"
+fi
+RUNNER="${VLLM_SWITCH_RUNNER:-$MODELS_DIR/vllm-profile-runner}"
+SERVICE_NAME="${VLLM_SWITCH_SERVICE_NAME:-vllm-cluster.service}"
+SERVICE_USER="${VLLM_SWITCH_SERVICE_USER:-$(id -un)}"
+SERVICE_HOME="${VLLM_SWITCH_SERVICE_HOME:-$HOME}"
+SERVICE_FILE="${VLLM_SWITCH_SERVICE_FILE:-/etc/systemd/system/$SERVICE_NAME}"
+SERVICE_DROPIN_FILE="${VLLM_SWITCH_SERVICE_DROPIN_FILE:-/etc/systemd/system/$SERVICE_NAME.d/zz-vllm-switch.conf}"
+STATE_FILE="${VLLM_SWITCH_STATE_FILE:-$MODELS_DIR/.active-profile}"
+PREVIOUS_FILE="${VLLM_SWITCH_PREVIOUS_FILE:-$MODELS_DIR/.previous-profile}"
+WORKER_SSH="${VLLM_SWITCH_WORKER_SSH:-${WORKER_SSH:-}}"
+SYSTEMCTL="${VLLM_SWITCH_SYSTEMCTL:-systemctl}"
+SUDO="${VLLM_SWITCH_SUDO-sudo}"
+OFFLINE="${VLLM_SWITCH_OFFLINE:-0}"
+
+die() { echo "vllm-switch: $*" >&2; exit 1; }
+note() { printf '%s\n' "$*"; }
+
+profile_path() {
+  [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid profile name: $1"
+  printf '%s/%s.conf\n' "$MODELS_DIR" "$1"
+}
+
+profile_description() {
+  local desc
+  desc="$(sed -n 's/^# *//p' "$1" | head -n 1)"
+  printf '%s' "${desc:-(no description)}"
+}
+
+current_profile() {
+  [[ -s "$STATE_FILE" ]] && head -n 1 "$STATE_FILE" || true
+}
+
+service_active() {
+  "$SYSTEMCTL" is-active --quiet "$SERVICE_NAME" 2>/dev/null
+}
+
+load_profile() {
+  local name="$1" file
+  file="$(profile_path "$name")"
+  [[ -f "$file" ]] || die "no profile found: $file"
+
+  unset PROFILE_DESCRIPTION SERVICE_MODE MODEL_PATH WORKER_MODEL_PATH MODEL_ARGUMENT
+  unset MODEL_NAME DOCKER_IMAGE START_COMMAND STOP_COMMAND TRACK_COMMAND
+  unset READINESS_URL READINESS_MODEL STARTUP_TIMEOUT RESTART_POLICY WORKING_DIRECTORY
+  unset ROLLBACK_PROFILE AUTO_ROLLBACK CAPTURE_FAILURE_COMMAND ADOPT_UNIT_CONTAINS
+  unset ALLOW_IMAGE_ENTRYPOINT
+  unset SERVICE_ENV REQUIRED_LOCAL_PATHS REQUIRED_WORKER_PATHS
+  declare -ga SERVICE_ENV=() REQUIRED_LOCAL_PATHS=() REQUIRED_WORKER_PATHS=() ADOPT_UNIT_CONTAINS=()
+  # Profiles are trusted, administrator-owned shell configuration.
+  # shellcheck disable=SC1090
+  source "$file"
+  PROFILE_NAME="$name"
+  PROFILE_FILE="$file"
+  SERVICE_MODE="${SERVICE_MODE:-generic}"
+  RESTART_POLICY="${RESTART_POLICY:-on-failure}"
+  STARTUP_TIMEOUT="${STARTUP_TIMEOUT:-1500}"
+}
+
+validate_profile() {
+  local name="$1" path image_head image_worker image_entrypoint item
+  load_profile "$name"
+  case "$RESTART_POLICY" in no|on-failure|always) ;; *) die "$name: invalid RESTART_POLICY=$RESTART_POLICY" ;; esac
+  [[ "$STARTUP_TIMEOUT" =~ ^[0-9]+$ ]] || die "$name: STARTUP_TIMEOUT must be an integer"
+  [[ -n "${MODEL_PATH:-}" ]] || die "$name: MODEL_PATH is required"
+  [[ -n "${DOCKER_IMAGE:-}" ]] || die "$name: DOCKER_IMAGE is required"
+  [[ -n "${MODEL_NAME:-}" ]] || die "$name: MODEL_NAME is required"
+  case "$SERVICE_MODE" in
+    scripted)
+      [[ -n "${START_COMMAND:-}" ]] || die "$name: START_COMMAND is required"
+      [[ -n "${STOP_COMMAND:-}" ]] || die "$name: STOP_COMMAND is required"
+      [[ -n "${TRACK_COMMAND:-}" ]] || die "$name: TRACK_COMMAND is required"
+      ;;
+    generic)
+      for item in MAX_MODEL_LEN MAX_NUM_SEQS GPU_UTIL KV_CACHE_DTYPE; do
+        [[ -n "${!item:-}" ]] || die "$name: $item is required for generic mode"
+      done
+      ;;
+    *) die "$name: unsupported SERVICE_MODE=$SERVICE_MODE" ;;
+  esac
+
+  [[ "$OFFLINE" == "1" ]] && return 0
+  [[ -n "$WORKER_SSH" ]] || die "VLLM_SWITCH_WORKER_SSH is required in $SWITCH_CONFIG"
+  [[ -x "$RUNNER" ]] || die "profile runner is missing or not executable: $RUNNER"
+  [[ -d "$MODEL_PATH" ]] || die "$name: model path is missing on spark-1: $MODEL_PATH"
+  ssh -o BatchMode=yes -o ConnectTimeout=10 "$WORKER_SSH" \
+    "test -d '$(printf "%s" "${WORKER_MODEL_PATH:-$MODEL_PATH}" | sed "s/'/'\\''/g")'" \
+    || die "$name: model path is missing on spark-2: ${WORKER_MODEL_PATH:-$MODEL_PATH}"
+  for path in "${REQUIRED_LOCAL_PATHS[@]}"; do
+    [[ -e "$path" ]] || die "$name: required local path is missing: $path"
+  done
+  for path in "${REQUIRED_WORKER_PATHS[@]}"; do
+    ssh -o BatchMode=yes "$WORKER_SSH" "test -e '$(printf "%s" "$path" | sed "s/'/'\\''/g")'" \
+      || die "$name: required worker path is missing: $path"
+  done
+  image_head="$(docker image inspect "$DOCKER_IMAGE" --format '{{.Id}}' 2>/dev/null)" \
+    || die "$name: image is missing on spark-1: $DOCKER_IMAGE"
+  image_worker="$(ssh -o BatchMode=yes "$WORKER_SSH" \
+    "docker image inspect '$DOCKER_IMAGE' --format '{{.Id}}'" 2>/dev/null)" \
+    || die "$name: image is missing on spark-2: $DOCKER_IMAGE"
+  [[ "$image_head" == "$image_worker" ]] \
+    || die "$name: image IDs differ (spark-1=$image_head spark-2=$image_worker)"
+  if [[ "$SERVICE_MODE" == "generic" && "${ALLOW_IMAGE_ENTRYPOINT:-0}" != "1" ]]; then
+    image_entrypoint="$(docker image inspect "$DOCKER_IMAGE" --format '{{json .Config.Entrypoint}}')"
+    [[ "$image_entrypoint" == "null" || "$image_entrypoint" == "[]" ]] || die \
+      "$name: generic launcher requires an image without ENTRYPOINT (found $image_entrypoint)"
+  fi
+}
+
+render_unit() {
+  local name="$1"
+  load_profile "$name"
+  cat <<EOF
+[Unit]
+Description=vLLM Cluster Service ($name)
+After=network-online.target docker.service nvidia-gpu-clock-cap.service
+Wants=network-online.target docker.service nvidia-gpu-clock-cap.service
+StartLimitIntervalSec=600
+StartLimitBurst=3
+OnFailure=vllm-alert.service
+
+[Service]
+Type=simple
+User=$SERVICE_USER
+WorkingDirectory=${WORKING_DIRECTORY:-$MODELS_DIR}
+Environment=HOME=$SERVICE_HOME
+Environment=VLLM_SWITCH_PROFILES_DIR=$MODELS_DIR
+Environment=VLLM_SWITCH_STATE_FILE=$STATE_FILE
+Environment=VLLM_SWITCH_WORKER_SSH=$WORKER_SSH
+ExecStart=$RUNNER start $name
+ExecStop=$RUNNER stop $name
+Restart=$RESTART_POLICY
+RestartSec=30
+TimeoutStartSec=$STARTUP_TIMEOUT
+TimeoutStopSec=${STOP_TIMEOUT:-120}
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+wait_stopped() {
+  local i
+  for i in $(seq 1 120); do
+    service_active || return 0
+    sleep 1
+  done
+  return 1
+}
+
+wait_ready() {
+  local name="$1" elapsed=0 body
+  load_profile "$name"
+  while (( elapsed < STARTUP_TIMEOUT )); do
+    service_active || return 1
+    if [[ -z "${READINESS_URL:-}" ]]; then return 0; fi
+    body="$(curl -fsS --max-time 5 "$READINESS_URL" 2>/dev/null || true)"
+    if [[ -n "$body" ]] && { [[ -z "${READINESS_MODEL:-}" ]] || grep -Fq "$READINESS_MODEL" <<<"$body"; }; then
+      return 0
+    fi
+    sleep 5
+    elapsed=$((elapsed + 5))
+  done
+  return 1
+}
+
+install_unit() {
+  local name="$1" tmp dropin_tmp
+  tmp="$(mktemp)"
+  dropin_tmp="$(mktemp)"
+  render_unit "$name" >"$tmp"
+  cat >"$dropin_tmp" <<'EOF'
+[Service]
+# Clear historical pre-start directives. Scripted profiles run their one
+# pre-start hook inside vllm-profile-runner; generic profiles do not need one.
+ExecStartPre=
+EOF
+  $SUDO install -m 0644 "$tmp" "$SERVICE_FILE"
+  $SUDO install -d -m 0755 "$(dirname "$SERVICE_DROPIN_FILE")"
+  $SUDO install -m 0644 "$dropin_tmp" "$SERVICE_DROPIN_FILE"
+  rm -f "$tmp" "$dropin_tmp"
+  $SUDO "$SYSTEMCTL" daemon-reload
+}
+
+backup_service_config() {
+  local backup_dir stamp
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  backup_dir="$MODELS_DIR/backups/service-$stamp"
+  mkdir -p "$backup_dir"
+  [[ -f "$SERVICE_FILE" ]] && cp -a "$SERVICE_FILE" "$backup_dir/"
+  "$SYSTEMCTL" cat "$SERVICE_NAME" >"$backup_dir/systemctl-cat.txt" 2>&1 || true
+  "$SYSTEMCTL" show "$SERVICE_NAME" -p ExecStartPre -p ExecStart -p ExecStop \
+    >"$backup_dir/systemctl-exec.txt" 2>&1 || true
+  printf '%s\n' "$backup_dir"
+}
+
+activate_profile() {
+  local name="$1" suppress_rollback="${2:-0}" previous rollback
+  validate_profile "$name"
+  load_profile "$name"
+  previous="$(current_profile)"
+  rollback="${previous:-${ROLLBACK_PROFILE:-}}"
+  [[ -n "$previous" && "$previous" != "$name" ]] && printf '%s\n' "$previous" >"$PREVIOUS_FILE"
+
+  note "Switching vLLM profile: ${previous:-(untracked)} -> $name"
+  note "  image: $DOCKER_IMAGE"
+  note "  model path: $MODEL_PATH"
+  note "  served model: $MODEL_NAME"
+  note "  service backup: $(backup_service_config)"
+  $SUDO "$SYSTEMCTL" stop "$SERVICE_NAME" 2>/dev/null || true
+  wait_stopped || die "$SERVICE_NAME did not stop within 120 seconds"
+  install_unit "$name"
+  printf '%s\n' "$name" >"$STATE_FILE"
+  if $SUDO "$SYSTEMCTL" start "$SERVICE_NAME" && wait_ready "$name"; then
+    note "vLLM profile is ready: $name"
+    note "  endpoint: ${READINESS_URL:-service active}"
+    return 0
+  fi
+
+  note "Profile failed readiness: $name" >&2
+  load_profile "$name"
+  [[ -n "${CAPTURE_FAILURE_COMMAND:-}" ]] && bash -lc "$CAPTURE_FAILURE_COMMAND" || true
+  $SUDO "$SYSTEMCTL" stop "$SERVICE_NAME" 2>/dev/null || true
+  "$RUNNER" stop "$name" 2>/dev/null || true
+  if [[ "$suppress_rollback" == "0" && "${AUTO_ROLLBACK:-0}" == "1" && -n "$rollback" && "$rollback" != "$name" ]]; then
+    note "Rolling back to $rollback" >&2
+    activate_profile "$rollback" 1
+  fi
+  return 1
+}
+
+adopt_profile() {
+  local name="$1" marker unit
+  validate_profile "$name"
+  load_profile "$name"
+  service_active || die "cannot adopt $name: $SERVICE_NAME is not active"
+  unit="$($SYSTEMCTL cat "$SERVICE_NAME")"
+  for marker in "${ADOPT_UNIT_CONTAINS[@]}"; do
+    grep -Fq "$marker" <<<"$unit" || die "cannot adopt $name: unit does not contain $marker"
+  done
+  printf '%s\n' "$name" >"$STATE_FILE"
+  note "Recorded active profile without changing the service: $name"
+}
+
+list_profiles() {
+  local file name active suffix
+  active="$(current_profile)"
+  note "Available model profiles:"
+  shopt -s nullglob
+  for file in "$MODELS_DIR"/*.conf; do
+    name="$(basename "$file" .conf)"
+    suffix=""
+    [[ "$name" == "$active" ]] && suffix=" [ACTIVE]"
+    printf '  %-46s %s%s\n' "$name" "$(profile_description "$file")" "$suffix"
+  done
+}
+
+show_status() {
+  local active state probe=""
+  active="$(current_profile)"
+  if service_active; then state=running; else state=stopped; fi
+  if [[ -n "$active" && -f "$(profile_path "$active")" ]]; then
+    load_profile "$active"
+    if [[ -n "${READINESS_URL:-}" ]] && curl -fsS --max-time 3 "$READINESS_URL" >/dev/null 2>&1; then
+      probe=ready
+    elif [[ -n "${READINESS_URL:-}" ]]; then
+      probe=not-ready
+    fi
+  fi
+  printf '%s: %s' "$SERVICE_NAME" "$state"
+  [[ -n "$active" ]] && printf ' profile=%s' "$active" || printf ' profile=unknown'
+  [[ -n "$probe" ]] && printf ' api=%s' "$probe"
+  printf '\n'
+}
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") COMMAND [PROFILE]
+
+Commands:
+  list                  List profiles without sourcing them
+  status                Show service, recorded profile, and API state
+  validate PROFILE      Run non-mutating two-node profile checks
+  render PROFILE        Print the generated systemd unit
+  adopt PROFILE         Record an already-running matching profile
+  switch PROFILE        Stop the current profile and activate PROFILE
+  rollback              Activate the previously recorded profile
+
+For compatibility, a bare PROFILE is equivalent to: switch PROFILE
+EOF
+}
+
+command="${1:-}"
+case "$command" in
+  ""|-h|--help) usage ;;
+  list) list_profiles ;;
+  status) show_status ;;
+  validate) [[ $# -eq 2 ]] || die "validate requires PROFILE"; validate_profile "$2"; note "Profile is valid: $2" ;;
+  render) [[ $# -eq 2 ]] || die "render requires PROFILE"; validate_profile "$2"; render_unit "$2" ;;
+  adopt) [[ $# -eq 2 ]] || die "adopt requires PROFILE"; adopt_profile "$2" ;;
+  switch) [[ $# -eq 2 ]] || die "switch requires PROFILE"; activate_profile "$2" ;;
+  rollback)
+    [[ -s "$PREVIOUS_FILE" ]] || die "no previous profile is recorded"
+    activate_profile "$(head -n 1 "$PREVIOUS_FILE")" 1
+    ;;
+  *) [[ $# -eq 1 ]] || die "unexpected arguments"; activate_profile "$command" ;;
+esac

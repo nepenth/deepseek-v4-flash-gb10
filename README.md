@@ -24,12 +24,19 @@ The default image is built locally from the exact vLLM 0.27.1 commit pinned in
 dspark-vllm-gb10:v0.27.1
 ```
 
-The Anemll runtime fork is imported with history under `runtime/`. Build the
-same pinned image on both configured nodes from the head:
+The Anemll runtime fork is imported with history under `runtime/`. The generic
+development helper can build on both configured nodes:
 
 ```bash
 ./build-dspark-vllm-runtime.sh
 ```
+
+For the controlled 2x Spark qualification, use the guarded cluster workflow
+instead: build once on the head, transfer the exact image to the worker, and
+require identical image IDs. See
+[`docs/CLUSTER_CONTROL_PLANE.md`](docs/CLUSTER_CONTROL_PLANE.md) for the
+`vllm-switch` integration, production rollback profile, canary activation, and
+test-record process.
 
 The v0.27.1 build uses native upstream components:
 

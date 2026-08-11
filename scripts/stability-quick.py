@@ -165,6 +165,7 @@ def main() -> int:
     parser.add_argument("--soak-concurrency", type=int, default=2)
     parser.add_argument("--vision-prefix-tokens", type=int, default=65536)
     parser.add_argument("--image", default="results/smoke-solid-red.jpg")
+    parser.add_argument("--skip-vision", action="store_true")
     parser.add_argument("--output", default="")
     args = parser.parse_args()
 
@@ -191,7 +192,6 @@ def main() -> int:
     log("Phase 0: readiness smoke")
     try:
         main_models = request_json(f"{args.base_url}/models", timeout=30)
-        vl_models = request_json(f"{args.vl_url}/models", timeout=30)
         smoke = chat_stream(
             args.base_url,
             args.model,
@@ -202,20 +202,26 @@ def main() -> int:
         )
         if not smoke["ok"] or "OK" not in smoke["preview"].upper():
             raise RuntimeError(f"text smoke bad: {smoke}")
-        img = ensure_image(Path(args.image))
-        b64 = base64.b64encode(img.read_bytes()).decode()
-        vsmoke = vision_chat(args.vl_url, args.vl_model, b64, "One word: what color is this solid square?")
-        if not vsmoke["ok"]:
-            raise RuntimeError(f"vision smoke failed: {vsmoke}")
-        report["phases"]["readiness"] = {
+        readiness = {
             "main_model": (main_models.get("data") or [{}])[0].get("id"),
             "main_max_model_len": (main_models.get("data") or [{}])[0].get("max_model_len"),
-            "vl_model": (vl_models.get("data") or [{}])[0].get("id"),
             "text_smoke": smoke,
-            "vision_smoke": vsmoke,
             "ok": True,
         }
-        log(f"  text OK ({smoke['elapsed_s']:.1f}s); vision '{vsmoke['preview']}' ({vsmoke['elapsed_s']:.1f}s)")
+        if not args.skip_vision:
+            vl_models = request_json(f"{args.vl_url}/models", timeout=30)
+            img = ensure_image(Path(args.image))
+            b64 = base64.b64encode(img.read_bytes()).decode()
+            vsmoke = vision_chat(args.vl_url, args.vl_model, b64, "One word: what color is this solid square?")
+            if not vsmoke["ok"]:
+                raise RuntimeError(f"vision smoke failed: {vsmoke}")
+            readiness["vl_model"] = (vl_models.get("data") or [{}])[0].get("id")
+            readiness["vision_smoke"] = vsmoke
+            log(f"  text OK ({smoke['elapsed_s']:.1f}s); vision '{vsmoke['preview']}' ({vsmoke['elapsed_s']:.1f}s)")
+        else:
+            readiness["vision_smoke"] = {"ok": True, "skipped": True}
+            log(f"  text OK ({smoke['elapsed_s']:.1f}s); vision skipped")
+        report["phases"]["readiness"] = readiness
     except Exception as exc:  # noqa: BLE001
         report["phases"]["readiness"] = {"ok": False, "error": str(exc)}
         report["failures"].append({"phase": "readiness", "error": str(exc)})
@@ -334,64 +340,68 @@ def main() -> int:
         save()
 
     # --- Phase 3: vision while holding long 0731 prefix ---
-    log(f"Phase 3: vision mid-context (0731 prefix ~{args.vision_prefix_tokens})")
-    try:
-        prefix = build_prompt(
-            args.base_url, args.model, args.vision_prefix_tokens, "vision-prefix"
-        )
-        # Hold KV with a short decode first
-        hold = chat_stream(
-            args.base_url,
-            args.model,
-            [
-                {
-                    "role": "user",
-                    "content": prefix + "\n\nReply with exactly: PREFIX_HELD",
-                }
-            ],
-            max_tokens=32,
-            thinking=False,
-        )
-        img = ensure_image(Path(args.image))
-        b64 = base64.b64encode(img.read_bytes()).decode()
-        vmid = vision_chat(
-            args.vl_url,
-            args.vl_model,
-            b64,
-            "One word color of this solid square (expect Red).",
-        )
-        # Continue on 0731 after VL call (new request; proves API still healthy)
-        resume = chat_stream(
-            args.base_url,
-            args.model,
-            [
-                {
-                    "role": "user",
-                    "content": prefix + "\n\nReply with exactly: AFTER_VISION_OK",
-                }
-            ],
-            max_tokens=32,
-            thinking=False,
-        )
-        ok = (
-            hold.get("ok")
-            and "PREFIX_HELD" in hold.get("preview", "").upper()
-            and vmid.get("ok")
-            and resume.get("ok")
-            and "AFTER_VISION_OK" in resume.get("preview", "").upper()
-        )
-        phase = {"hold": hold, "vision": vmid, "resume": resume, "ok": ok}
-        if not ok:
-            report["failures"].append({"phase": "vision_mid", "detail": phase})
-        report["phases"]["vision_mid"] = phase
-        log(
-            f"  {'PASS' if ok else 'FAIL'} hold={hold.get('prompt_tokens')} "
-            f"vision='{vmid.get('preview')}' resume={resume.get('preview', '')[:40]!r}"
-        )
-    except Exception as exc:  # noqa: BLE001
-        report["phases"]["vision_mid"] = {"ok": False, "error": str(exc)}
-        report["failures"].append({"phase": "vision_mid", "error": str(exc)})
-        log(f"  FAIL vision_mid: {exc}")
+    if args.skip_vision:
+        report["phases"]["vision_mid"] = {"ok": True, "skipped": True}
+        log("Phase 3: vision mid-context skipped")
+    else:
+        log(f"Phase 3: vision mid-context (0731 prefix ~{args.vision_prefix_tokens})")
+        try:
+            prefix = build_prompt(
+                args.base_url, args.model, args.vision_prefix_tokens, "vision-prefix"
+            )
+            # Hold KV with a short decode first
+            hold = chat_stream(
+                args.base_url,
+                args.model,
+                [
+                    {
+                        "role": "user",
+                        "content": prefix + "\n\nReply with exactly: PREFIX_HELD",
+                    }
+                ],
+                max_tokens=32,
+                thinking=False,
+            )
+            img = ensure_image(Path(args.image))
+            b64 = base64.b64encode(img.read_bytes()).decode()
+            vmid = vision_chat(
+                args.vl_url,
+                args.vl_model,
+                b64,
+                "One word color of this solid square (expect Red).",
+            )
+            # Continue on 0731 after VL call (new request; proves API still healthy)
+            resume = chat_stream(
+                args.base_url,
+                args.model,
+                [
+                    {
+                        "role": "user",
+                        "content": prefix + "\n\nReply with exactly: AFTER_VISION_OK",
+                    }
+                ],
+                max_tokens=32,
+                thinking=False,
+            )
+            ok = (
+                hold.get("ok")
+                and "PREFIX_HELD" in hold.get("preview", "").upper()
+                and vmid.get("ok")
+                and resume.get("ok")
+                and "AFTER_VISION_OK" in resume.get("preview", "").upper()
+            )
+            phase = {"hold": hold, "vision": vmid, "resume": resume, "ok": ok}
+            if not ok:
+                report["failures"].append({"phase": "vision_mid", "detail": phase})
+            report["phases"]["vision_mid"] = phase
+            log(
+                f"  {'PASS' if ok else 'FAIL'} hold={hold.get('prompt_tokens')} "
+                f"vision='{vmid.get('preview')}' resume={resume.get('preview', '')[:40]!r}"
+            )
+        except Exception as exc:  # noqa: BLE001
+            report["phases"]["vision_mid"] = {"ok": False, "error": str(exc)}
+            report["failures"].append({"phase": "vision_mid", "error": str(exc)})
+            log(f"  FAIL vision_mid: {exc}")
     save()
 
     report["finished_at"] = datetime.now(timezone.utc).isoformat()

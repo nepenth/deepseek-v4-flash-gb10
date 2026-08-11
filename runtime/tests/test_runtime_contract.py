@@ -56,6 +56,8 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertNotIn("overlay/vllm", build_script)
         self.assertNotIn("pip install", dockerfile)
         self.assertIn("torch_cuda_arch_list=$TORCH_CUDA_ARCH_LIST", build_script)
+        legacy_start = (RUNTIME / "scripts/start-node.sh").read_text()
+        self.assertIn("ALLOW_LEGACY_RUNTIME_COMPOSE", legacy_start)
 
     def test_compose_uses_canonical_sparse_mla_dtype(self) -> None:
         compose = (ROOT / "docker-compose.dspark.yml").read_text()
@@ -74,6 +76,38 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("448-dimension", research)
         self.assertIn("512+64", research)
         self.assertIn("experimental research", research)
+
+    def test_cluster_canary_preserves_first_light_contract(self) -> None:
+        profile = (ROOT / "cluster/profiles/deepseek-v4-flash-0731-v0271-canary.conf").read_text()
+        example = (ROOT / "cluster/environments/deepseek-v4-flash-0731-v0271-canary.env.example").read_text()
+        compose = (ROOT / "docker-compose.dspark.yml").read_text()
+        self.assertIn("RESTART_POLICY=no", profile)
+        self.assertIn("ROLLBACK_PROFILE=deepseek-v4-flash-0731-dspark", profile)
+        self.assertIn("MAX_MODEL_LEN=393216", example)
+        self.assertIn("MAX_NUM_SEQS=6", example)
+        self.assertIn("MAX_NUM_BATCHED_TOKENS=4096", example)
+        self.assertIn("GPU_MEMORY_UTILIZATION_TEXT=0.78", example)
+        self.assertIn("MTP_NUM_TOKENS=5", example)
+        self.assertIn("KV_CACHE_DTYPE=fp8_ds_mla", example)
+        self.assertIn("DSPARK_MODEL_HOST", compose)
+
+    def test_tracked_cluster_examples_do_not_contain_private_addresses(self) -> None:
+        tracked = [
+            path
+            for path in (ROOT / "cluster").rglob("*")
+            if path.is_file() and "tests" not in path.parts and "__pycache__" not in path.parts
+        ]
+        tracked.append(ROOT / "docs/CLUSTER_CONTROL_PLANE.md")
+        private_markers = (
+            ".".join(("192", "168", "100", "")),
+            ".".join(("10", "0", "10", "")),
+            "gx10-" + "97f1",
+            "gx10-" + "9dbe",
+        )
+        for path in tracked:
+            text = path.read_text()
+            for marker in private_markers:
+                self.assertNotIn(marker, text, f"{marker} leaked into {path}")
 
 
 if __name__ == "__main__":

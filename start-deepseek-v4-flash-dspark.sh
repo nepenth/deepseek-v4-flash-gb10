@@ -106,13 +106,31 @@ else
 fi
 export GPU_MEMORY_UTILIZATION ENABLE_VL_SIDECAR DSPARK_SERVE_MODE
 
+# A local checkpoint path takes precedence for reproducible cluster qualification.
+# Both ranks mount their node-local copy at the same container path.
+DSPARK_MODEL_HOST="${DSPARK_MODEL_HOST:-}"
+WORKER_DSPARK_MODEL_HOST="${WORKER_DSPARK_MODEL_HOST:-$DSPARK_MODEL_HOST}"
+DSPARK_MODEL_CONTAINER="${DSPARK_MODEL_CONTAINER:-/models/dspark-checkpoint}"
+LOCAL_MODEL_MODE=0
+if [ -n "$DSPARK_MODEL_HOST" ]; then
+  [ -d "$DSPARK_MODEL_HOST" ] || {
+    echo "Local checkpoint path is missing on the head: $DSPARK_MODEL_HOST" >&2
+    exit 1
+  }
+  DSPARK_MODEL="$DSPARK_MODEL_CONTAINER"
+  DSPARK_REVISION=""
+  LOCAL_MODEL_MODE=1
+fi
+
 # Checkpoint flag: official 0731 vs Keys abliterated weights.
 #   ABLITERATED=0 → DSPARK_MODEL_OFFICIAL
 #   ABLITERATED=1 → DSPARK_MODEL_ABLITERATED
 DSPARK_MODEL_OFFICIAL="${DSPARK_MODEL_OFFICIAL:-deepseek-ai/DeepSeek-V4-Flash-0731}"
 DSPARK_MODEL_ABLITERATED="${DSPARK_MODEL_ABLITERATED:-drowzeys/keys-DeepSeekV4-Flash-GA-0731-Dspark-Abliterated-32-32}"
 DEFAULT_OFFICIAL_REVISION="9e165c30e2704aec5d9d593cce3eebd58bbef1cb"
-if [ "${ABLITERATED:-0}" = "1" ]; then
+if [ "$LOCAL_MODEL_MODE" = "1" ]; then
+  : # DSPARK_MODEL and DSPARK_REVISION were resolved above.
+elif [ "${ABLITERATED:-0}" = "1" ]; then
   DSPARK_MODEL="$DSPARK_MODEL_ABLITERATED"
   DSPARK_REVISION="${DSPARK_REVISION_ABLITERATED:-}"
 else
@@ -122,6 +140,7 @@ else
   fi
 fi
 export ABLITERATED DSPARK_MODEL DSPARK_MODEL_OFFICIAL DSPARK_MODEL_ABLITERATED DSPARK_REVISION
+export DSPARK_MODEL_HOST WORKER_DSPARK_MODEL_HOST DSPARK_MODEL_CONTAINER LOCAL_MODEL_MODE
 
 # CLI values have highest precedence; the env file remains the persistent
 # configuration source when no command-line override is provided.
@@ -344,7 +363,7 @@ resolve_nccl_gid_indexes() {
 
 remote_nccl_env() {
   # Rebuild each call so GID resolve after early init is visible on the worker.
-  printf "NCCL_IB_HCA='%s' NCCL_SOCKET_IFNAME='%s' TP_SOCKET_IFNAME='%s' GLOO_SOCKET_IFNAME='%s' NCCL_IB_GID_INDEX='%s' VLLM_HOST='%s' VLLM_PORT='%s' KV_CACHE_DTYPE='%s'" \
+  printf "NCCL_IB_HCA='%s' NCCL_SOCKET_IFNAME='%s' TP_SOCKET_IFNAME='%s' GLOO_SOCKET_IFNAME='%s' NCCL_IB_GID_INDEX='%s' VLLM_HOST='%s' VLLM_PORT='%s' KV_CACHE_DTYPE='%s' DSPARK_MODEL_HOST='%s' DSPARK_MODEL_CONTAINER='%s'" \
     "$WORKER_NCCL_IB_HCA" \
     "$WORKER_NCCL_SOCKET_IFNAME" \
     "$WORKER_TP_SOCKET_IFNAME" \
@@ -352,7 +371,9 @@ remote_nccl_env() {
     "$WORKER_NCCL_IB_GID_INDEX" \
     "$VLLM_HOST" \
     "$VLLM_PORT" \
-    "$KV_CACHE_DTYPE"
+    "$KV_CACHE_DTYPE" \
+    "$WORKER_DSPARK_MODEL_HOST" \
+    "$DSPARK_MODEL_CONTAINER"
 }
 
 compose_base() {
@@ -370,6 +391,8 @@ compose_base() {
     GPU_MEMORY_UTILIZATION="$GPU_MEMORY_UTILIZATION" \
     DSPARK_MODEL="$DSPARK_MODEL" \
     DSPARK_REVISION="${DSPARK_REVISION:-}" \
+    DSPARK_MODEL_HOST="$DSPARK_MODEL_HOST" \
+    DSPARK_MODEL_CONTAINER="$DSPARK_MODEL_CONTAINER" \
     ENABLE_VLLM_GB10_PATCH="$ENABLE_VLLM_GB10_PATCH" \
     VLLM_GB10_PATCH_DIR="$VLLM_GB10_PATCH_DIR" \
     GB10_HYBRID_NVFP4_M_THRESHOLD="${GB10_HYBRID_NVFP4_M_THRESHOLD:-128}" \
@@ -427,6 +450,9 @@ print_resolved_profile() {
   echo "  project: $PROJECT_NAME"
   echo "  serve mode: $DSPARK_SERVE_MODE (ENABLE_VL_SIDECAR=${ENABLE_VL_SIDECAR:-0})"
   echo "  checkpoint: $DSPARK_MODEL (ABLITERATED=${ABLITERATED:-0})"
+  if [ "$LOCAL_MODEL_MODE" = "1" ]; then
+    echo "  checkpoint mount: head=$DSPARK_MODEL_HOST worker=$WORKER_DSPARK_MODEL_HOST -> $DSPARK_MODEL_CONTAINER"
+  fi
   if [ -n "${DSPARK_REVISION:-}" ]; then
     echo "  revision: $DSPARK_REVISION"
   else
@@ -501,11 +527,28 @@ ssh -o BatchMode=yes -o ConnectTimeout=10 "$WORKER_HOST" "true" >/dev/null || {
   exit 1
 }
 
+if [ "$LOCAL_MODEL_MODE" = "1" ]; then
+  ssh "$WORKER_HOST" "test -d '$WORKER_DSPARK_MODEL_HOST'" || {
+    echo "Local checkpoint path is missing on the worker: $WORKER_DSPARK_MODEL_HOST" >&2
+    exit 1
+  }
+fi
+
 ssh "$WORKER_HOST" "docker image inspect '$DSPARK_VLLM_IMAGE' >/dev/null" || {
   echo "Missing worker Docker image $DSPARK_VLLM_IMAGE." >&2
   echo "Pull it on the worker (e.g. docker pull $DSPARK_VLLM_IMAGE) or run ./build-dspark-vllm-runtime.sh." >&2
   exit 1
 }
+
+HEAD_IMAGE_ID="$(docker image inspect "$DSPARK_VLLM_IMAGE" --format '{{.Id}}')"
+WORKER_IMAGE_ID="$(ssh "$WORKER_HOST" "docker image inspect '$DSPARK_VLLM_IMAGE' --format '{{.Id}}'")"
+if [ "$HEAD_IMAGE_ID" != "$WORKER_IMAGE_ID" ]; then
+  echo "Image ID mismatch for $DSPARK_VLLM_IMAGE:" >&2
+  echo "  head:   $HEAD_IMAGE_ID" >&2
+  echo "  worker: $WORKER_IMAGE_ID" >&2
+  exit 1
+fi
+echo "Both ranks use image $HEAD_IMAGE_ID"
 
 if docker ps --format '{{.Names}}' | grep -qx "${PROJECT_NAME}-vllm-dspark-1"; then
   echo "DSpark head container already exists for project $PROJECT_NAME. Stop it first or use PROJECT_NAME=..." >&2
@@ -533,6 +576,19 @@ SIDECAR_COMPOSE_FILE="${SIDECAR_COMPOSE_FILE:-$SCRIPT_DIR/docker-compose.vl-side
 if [ -f "$SIDECAR_COMPOSE_FILE" ]; then
   scp "$SIDECAR_COMPOSE_FILE" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/docker-compose.vl-sidecar.yml"
 fi
+
+LOCAL_COMPOSE_SHA="$(sha256sum "$COMPOSE_FILE" | awk '{print $1}')"
+LOCAL_ENV_SHA="$(sha256sum "$ENV_FILE" | awk '{print $1}')"
+REMOTE_HASHES="$(ssh "$WORKER_HOST" "sha256sum '$REMOTE_COMPOSE_FILE' '$REMOTE_ENV_FILE'")"
+grep -Fq "$LOCAL_COMPOSE_SHA" <<<"$REMOTE_HASHES" || {
+  echo "Worker compose hash does not match the head." >&2
+  exit 1
+}
+grep -Fq "$LOCAL_ENV_SHA" <<<"$REMOTE_HASHES" || {
+  echo "Worker environment hash does not match the head." >&2
+  exit 1
+}
+echo "Worker deployment hashes match the head."
 if [ "$ENABLE_VLLM_GB10_PATCH" = "1" ]; then
   echo "Syncing GB10 vLLM patch to ${WORKER_HOST}:${WORKER_DIR}/vllm_patch_gb10"
   tar -C "$VLLM_GB10_PATCH_DIR" \

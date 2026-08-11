@@ -2,6 +2,13 @@
 # SPDX-License-Identifier: MIT
 set -euo pipefail
 
+if [[ "${ALLOW_LEGACY_RUNTIME_COMPOSE:-0}" != "1" ]]; then
+  echo "This launcher is the imported v0.25/Stage-C reference and is disabled by default." >&2
+  echo "Use the repository root vllm-switch/canary path for vLLM 0.27.1." >&2
+  echo "Set ALLOW_LEGACY_RUNTIME_COMPOSE=1 only to reproduce the historical image." >&2
+  exit 2
+fi
+
 root="$(cd "$(dirname "$0")/.." && pwd)"
 env_file="${1:-$root/config/head.env}"
 [[ -f "$env_file" ]] || { echo "Missing environment file: $env_file" >&2; exit 1; }
