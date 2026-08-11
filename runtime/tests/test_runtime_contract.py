@@ -28,6 +28,8 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertEqual(lock["VLLM_VERSION"], "0.27.1")
         self.assertRegex(lock["VLLM_COMMIT"], r"^[0-9a-f]{40}$")
         self.assertEqual(lock["TORCH_CUDA_ARCH_LIST"], "12.1a")
+        self.assertEqual(lock["BUILD_MAX_JOBS"], "16")
+        self.assertEqual(lock["BUILD_NVCC_THREADS"], "8")
         self.assertEqual(lock["FLASHINFER_VERSION"], "0.6.16.post3")
         self.assertEqual(lock["CUTLASS_DSL_VERSION"], "4.6.2")
         self.assertEqual(lock["QUACK_VERSION"], "0.6.4")
@@ -56,6 +58,8 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertNotIn("overlay/vllm", build_script)
         self.assertNotIn("pip install", dockerfile)
         self.assertIn("torch_cuda_arch_list=$TORCH_CUDA_ARCH_LIST", build_script)
+        self.assertIn("max_jobs=$BUILD_MAX_JOBS", build_script)
+        self.assertIn("nvcc_threads=$BUILD_NVCC_THREADS", build_script)
         legacy_start = (RUNTIME / "scripts/start-node.sh").read_text()
         self.assertIn("ALLOW_LEGACY_RUNTIME_COMPOSE", legacy_start)
 

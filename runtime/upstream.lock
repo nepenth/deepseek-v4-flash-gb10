@@ -24,6 +24,12 @@ DEEPGEMM_COMMIT=2fd67329ec2942f65ba35d561256ab6ed3b903cb
 # when vLLM translates TORCH_CUDA_ARCH_LIST into CMake gencode flags.
 TORCH_CUDA_ARCH_LIST=12.1a
 
+# Match vLLM's Docker Bake concurrency on the 20-core, 128 GiB GB10 host.
+# setup.py divides MAX_JOBS by NVCC_THREADS to size Ninja's compile pool, so
+# upstream Dockerfile defaults (2/8) otherwise serialize every CUDA unit.
+BUILD_MAX_JOBS=16
+BUILD_NVCC_THREADS=8
+
 # Research pins are documentation inputs, not installed runtime dependencies.
 # b12x contains a 368-byte packed NVFP4 MLA reference for a 512+64 geometry.
 # The Moet fork contains the earlier 352-byte GLM-5.2 expansion proof. Neither

@@ -27,6 +27,8 @@ Current runtime inputs:
 - vLLM `v0.27.1` at `6e448d0ea9bf3d88d898b65449ca6dc2aec170ac`;
 - CUDA 13.0.3, PyTorch 2.13.0, FlashInfer 0.6.16.post3, CUTLASS DSL 4.6.2;
 - ARM64/GB10 build with `TORCH_CUDA_ARCH_LIST=12.1a`;
+- explicit `MAX_JOBS=16`/`NVCC_THREADS=8` build inputs, yielding two concurrent
+  CUDA translation units instead of upstream Dockerfile's serialized default;
 - native `fp8_ds_mla`, DSpark, DeepSeek V4 SM121 sparse MLA, and
   `flashinfer_b12x`;
 - CUDA-only FlashAttention source retrieval limited to its required CUTLASS

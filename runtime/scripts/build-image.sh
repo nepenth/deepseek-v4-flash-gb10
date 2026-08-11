@@ -24,6 +24,8 @@ fi
   --file "$upstream_dockerfile" \
   --target vllm-openai \
   --build-arg "torch_cuda_arch_list=$TORCH_CUDA_ARCH_LIST" \
+  --build-arg "max_jobs=$BUILD_MAX_JOBS" \
+  --build-arg "nvcc_threads=$BUILD_NVCC_THREADS" \
   --build-arg "VLLM_BUILD_COMMIT=$VLLM_COMMIT" \
   --build-arg "VLLM_IMAGE_TAG=$final_image" \
   --tag "$base_image" \
