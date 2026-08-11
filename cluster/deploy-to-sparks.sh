@@ -85,6 +85,6 @@ for target in "$HEAD_SSH" "$WORKER_SSH"; do
 done
 private_sha="$(sha256sum "$PRIVATE_DIR/deepseek-v4-flash-0731-v0271-canary.env" | awk '{print $1}')"
 remote_private_sha="$(ssh -F /dev/null "$HEAD_SSH" \
-  "sha256sum '$REMOTE_DIR/cluster/environments/deepseek-v4-flash-0731-v0271-canary.env' | awk '{print \\$1}'")"
+  "sha256sum '$REMOTE_DIR/cluster/environments/deepseek-v4-flash-0731-v0271-canary.env' | cut -d' ' -f1")"
 [[ "$private_sha" == "$remote_private_sha" ]] || { echo "Private canary environment hash mismatch on head" >&2; exit 1; }
 echo "Both node deployment manifests match. The live service was not changed."
