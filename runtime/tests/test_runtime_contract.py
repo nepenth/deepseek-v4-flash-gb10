@@ -42,7 +42,7 @@ class RuntimeContractTests(unittest.TestCase):
             for line in (RUNTIME / "patches/vllm/series").read_text().splitlines()
             if line.strip() and not line.startswith("#")
         ]
-        self.assertEqual(len(entries), 23)
+        self.assertEqual(len(entries), 24)
         self.assertEqual(len(entries), len(set(entries)))
         for number, entry in enumerate(entries, 1):
             self.assertTrue(entry.startswith(f"{number:04d}-"), entry)

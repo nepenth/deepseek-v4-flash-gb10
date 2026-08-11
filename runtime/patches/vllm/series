@@ -30,3 +30,4 @@
 0021-adaptive-spec-scheduled-budget.patch
 0022-cutlass-dsl-4.6.2-quack-0.6.4.patch
 0023-dsv4-parser-thinking-default.patch
+0024-cuda-flash-attn-submodules.patch

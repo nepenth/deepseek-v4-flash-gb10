@@ -1,0 +1,30 @@
+From 8e6235f67d6d7351ad2fe4b097d6d73b25c9b67c Mon Sep 17 00:00:00 2001
+From: Chris <16943149+nepenth@users.noreply.github.com>
+Date: Tue, 11 Aug 2026 16:42:00 -0400
+Subject: [PATCH 24/24] [Build] Limit FlashAttention submodules for CUDA builds
+
+The vllm-flash-attn repository also declares ROCm AITER and Composable Kernel
+submodules. FetchContent's default recursive submodule update downloads both
+trees during a CUDA-only build, including AITER's nested ROCm dependencies.
+
+Only CUTLASS is required by the CUDA extension. Restrict the checkout to that
+submodule so ARM64 source builds do not spend substantial time and disk space
+retrieving unused ROCm sources.
+---
+ cmake/external_projects/vllm_flash_attn.cmake | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/cmake/external_projects/vllm_flash_attn.cmake b/cmake/external_projects/vllm_flash_attn.cmake
+index d11eaa537..6c3b94693 100644
+--- a/cmake/external_projects/vllm_flash_attn.cmake
++++ b/cmake/external_projects/vllm_flash_attn.cmake
+@@ -40,6 +40,7 @@ else()
+           vllm-flash-attn
+           GIT_REPOSITORY https://github.com/vllm-project/flash-attention.git
+           GIT_TAG 28e862d21806bc3580207aa0ad4e2759151e9827
++          GIT_SUBMODULES csrc/cutlass
+           GIT_PROGRESS TRUE
+           # Don't share the vllm-flash-attn build between build types
+           BINARY_DIR ${CMAKE_BINARY_DIR}/vllm-flash-attn
+-- 
+2.43.0

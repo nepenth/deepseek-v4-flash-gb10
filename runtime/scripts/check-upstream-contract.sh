@@ -79,6 +79,8 @@ if [[ "$phase" == "patched" ]]; then
   require_text 'input_budget = self.scheduler_config.max_num_batched_tokens' \
     vllm/v1/core/sched/scheduler.py
   require_text '"thinking" not in chat_kwargs' vllm/parser/deepseek_v4.py
+  require_text 'GIT_SUBMODULES csrc/cutlass' \
+    cmake/external_projects/vllm_flash_attn.cmake
   require_text 'VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT' vllm/envs.py
   require_text '_ghost_block_guard_enabled' \
     vllm/v1/core/single_type_kv_cache_manager.py

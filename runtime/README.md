@@ -29,6 +29,8 @@ Current runtime inputs:
 - ARM64/GB10 build with `TORCH_CUDA_ARCH_LIST=12.1a`;
 - native `fp8_ds_mla`, DSpark, DeepSeek V4 SM121 sparse MLA, and
   `flashinfer_b12x`;
+- CUDA-only FlashAttention source retrieval limited to its required CUTLASS
+  submodule, excluding recursive ROCm AITER and Composable Kernel downloads;
 - no post-build dependency downgrade and no installed-package file overlay.
 
 The old `nvfp4_ds_mla` spelling was an FP8 compatibility alias, not a true
