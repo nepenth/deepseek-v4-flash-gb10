@@ -17,7 +17,7 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 : "${WORKER_HOST:?WORKER_HOST must be set in $ENV_FILE or environment}"
-: "${DSPARK_VLLM_IMAGE:=vllm-dspark-runtime:dspark-nvfp4-stage-c}"
+: "${DSPARK_VLLM_IMAGE:=dspark-vllm-gb10:v0.27.1}"
 
 cd "$SCRIPT_DIR"
 WORKER_DIR="${WORKER_SCRIPT_DIR:-${WORKER_DIR:-$SCRIPT_DIR}}"

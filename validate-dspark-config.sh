@@ -20,6 +20,16 @@ set -a
 source "$ENV_FILE"
 set +a
 
+KV_CACHE_DTYPE="${KV_CACHE_DTYPE:-fp8_ds_mla}"
+if [ "$KV_CACHE_DTYPE" = "nvfp4_ds_mla" ]; then
+  KV_CACHE_DTYPE=fp8_ds_mla
+fi
+if [ "$KV_CACHE_DTYPE" != "fp8_ds_mla" ]; then
+  echo "KV_CACHE_DTYPE must be fp8_ds_mla for the v0.27.1 SM121 sparse-MLA runtime (got: $KV_CACHE_DTYPE)" >&2
+  exit 2
+fi
+export KV_CACHE_DTYPE
+
 # Match start-deepseek-v4-flash-dspark.sh: flag selects main util profile.
 if [ "${ENABLE_VL_SIDECAR:-0}" = "1" ]; then
   GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION_VISION:-0.80}"
@@ -67,6 +77,7 @@ echo "  max num seqs: ${MAX_NUM_SEQS:-6}"
 echo "  max batched tokens: ${MAX_NUM_BATCHED_TOKENS:-8192}"
 echo "  gpu memory utilization: ${GPU_MEMORY_UTILIZATION} (text ${GPU_MEMORY_UTILIZATION_TEXT:-0.835} / vision ${GPU_MEMORY_UTILIZATION_VISION:-0.80})"
 echo "  spec tokens (MTP_NUM_TOKENS): ${MTP_NUM_TOKENS:-5} with draft_sample_method=probabilistic (min 5 = dspark_block_size)"
+echo "  KV cache dtype: $KV_CACHE_DTYPE"
 echo "  cudagraph capture size: $(( ${MAX_NUM_SEQS:-6} * (${MTP_NUM_TOKENS:-5} + 1) )) (max_num_seqs * (mtp + 1))"
 echo "  breakable cudagraph: ${VLLM_USE_BREAKABLE_CUDAGRAPH:-0}"
 echo "  dspark slot clamp: ${DSPARK_SLOT_CLAMP:-1}"

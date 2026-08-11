@@ -1,0 +1,142 @@
+From f2cac65234102b3dec6db4fd45366ac394d8c0fa Mon Sep 17 00:00:00 2001
+From: jasl <jasl9187@hotmail.com>
+Date: Sun, 9 Aug 2026 02:38:09 +0800
+Subject: [PATCH] fix: keep the guard's shipped default at 0, and fix the
+ import order
+
+Setting the env default to 2 was tried and reverted after measuring what it
+costs. tests/v1/core, with the guard defaulted on:
+
+    guard 0 (upstream default)  ->  1 failed, 245 passed
+    guard 1 (upstream semantics) ->  3 failed
+    guard 2 (every group)        -> 12 failed
+
+The 11 extra failures are all in test_prefix_caching.py, which calls
+allocate_slots repeatedly to represent SUCCESSIVE scheduling steps while calling
+new_step_starts exactly once in the whole file. With the guard on, those
+allocations look like one step and the hits are correctly deferred, so the tests
+fail. The tests are step-agnostic rather than wrong -- but flipping the default
+here would fork 11 upstream tests and break every future test written the same
+way, for no benefit that setting the variable in the deployment does not already
+give.
+
+So the default stays 0 and the harness turns it on at serve time. The single
+remaining failure, test_async_scheduling_pp_allows_rescheduling_with_output_
+placeholders, fails identically on the pre-merge tree 4ebd1fb698 and is not
+related to this work.
+
+Also moves `from vllm import envs` above `vllm.utils.math_utils` so the import
+block stays isort-clean.
+
+Verified before committing, rather than assumed:
+- new_step_starts is called unconditionally at the top of Scheduler.schedule and
+  the coordinator forwards it to every manager, so cached_blocks_this_step
+  cannot grow across steps or defer a request permanently.
+- envs caching is enabled in the serving path (engine/core.py, multiproc_
+  executor.py), so the property does not do an os.getenv per scheduling call.
+---
+ tests/v1/core/test_ghost_block_guard.py      | 34 ++++++++++++++++++--
+ vllm/envs.py                                 | 24 +++++++++++---
+ vllm/v1/core/single_type_kv_cache_manager.py |  2 +-
+ 3 files changed, 52 insertions(+), 8 deletions(-)
+
+diff --git a/tests/v1/core/test_ghost_block_guard.py b/tests/v1/core/test_ghost_block_guard.py
+index ea0b118d..c1f2402e 100644
+--- a/tests/v1/core/test_ghost_block_guard.py
++++ b/tests/v1/core/test_ghost_block_guard.py
+@@ -69,11 +69,39 @@ def _mla_manager(block_pool):
+     )
+ 
+ 
++def test_the_shipped_default_stays_0():
++    """The default itself, not the property logic with a patched value.
++
++    It stays 0 to match upstream. tests/v1/core/test_prefix_caching.py calls
++    allocate_slots repeatedly to represent successive scheduling steps without
++    calling new_step_starts (the whole file calls it once), so with the guard on
++    those hits are treated as same-step and correctly deferred, and 11 of those
++    tests fail. Flipping the default here would fork them and break every future
++    test written the same way. Deployments turn it on instead --
++    scripts/dgx_spark_start_mp_serve.sh in the harness sets 2.
++
++    If this assertion ever fails because someone flipped the default, run
++    tests/v1/core/test_prefix_caching.py before deciding they were right.
++    """
++    import os
++
++    assert "VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT" not in os.environ, (
++        "unset the env var to test the shipped default"
++    )
++    import vllm.envs as envs
++
++    assert envs.VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT == 0
++
++
+ @pytest.mark.parametrize("make", [_full_manager, _mla_manager])
+-def test_guard_is_off_by_default(make, monkeypatch):
+-    """Unset env => the port must be inert, whatever use_eagle says."""
++def test_guard_can_be_turned_off(make, monkeypatch):
++    """Mode 0 must make the port inert, whatever use_eagle says.
++
++    The escape hatch has to keep working: if the guard ever needs to be ruled
++    out as the cause of something, `=0` must genuinely disable it.
++    """
+     monkeypatch.setattr(
+-        "vllm.envs.VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT", False, raising=False
++        "vllm.envs.VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT", 0, raising=False
+     )
+     manager = make(_pool())
+     manager.use_eagle = True
+diff --git a/vllm/envs.py b/vllm/envs.py
+index 8b9cf703..a455c866 100755
+--- a/vllm/envs.py
++++ b/vllm/envs.py
+@@ -648,11 +648,27 @@ environment_variables: dict[str, Callable[[], Any]] = {
+     # before the forward pass writes its KV, so another request admitted in the
+     # same step can match it and read unwritten values. MambaManager has guarded
+     # against this since #29387; every other manager -- including the MLA ones
+-    # DeepSeek-V4 uses -- does not. When True, defer such a reader by one
+-    # scheduling step. Off by default; only active when spec decode is enabled.
++    # DeepSeek-V4 uses -- does not. Defers such a reader by one scheduling step.
+     # 0 = off, 1 = upstream semantics (gated on use_eagle), 2 = every group.
+-    # 2 exists because on DeepSeek-V4 only the sliding-window groups carry the
+-    # eagle flag, so 1 guards 2 of 5 managers and leaves the main MLA path open.
++    #
++    # SHIPPED DEFAULT IS 0, matching upstream, because 11 tests in
++    # tests/v1/core/test_prefix_caching.py call allocate_slots repeatedly to
++    # represent SUCCESSIVE scheduling steps without ever calling
++    # new_step_starts() (the whole file calls it once). With the guard on they
++    # are treated as one step and legitimately deferred, so they fail. The tests
++    # are step-agnostic rather than wrong, but flipping the default here would
++    # fork 11 upstream tests and break every future test written the same way.
++    # OUR DEPLOYMENT SETS 2 (see scripts/dgx_spark_start_mp_serve.sh).
++    #
++    # Measured on DeepSeek-V4 (2-node TP=2, DSpark, fp8 KV,
++    # prefix caching on), 4 fresh serves per arm, 3 arthur c=12 runs each:
++    #   guard off -> 3 of 4 serves lose long-context recall, 2 into single
++    #                digits; gate mean 11.5, min 3 of 24
++    #   guard on  -> 4 of 4 serves at 20-23; gate mean 22.0, min 20
++    #   Mann-Whitney U p = 0.0043
++    # It also lifts the default V1 runner from 20.7 to 23.0, so this is not a
++    # V2-only fix. Mode 1 is upstream's gate, which covers only 2 of 5 managers
++    # on this model and leaves the main MLA path unguarded -- hence 2.
+     "VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT": lambda: int(
+         os.getenv("VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT", "0")
+     ),
+diff --git a/vllm/v1/core/single_type_kv_cache_manager.py b/vllm/v1/core/single_type_kv_cache_manager.py
+index 4cb8b77c..a949c011 100644
+--- a/vllm/v1/core/single_type_kv_cache_manager.py
++++ b/vllm/v1/core/single_type_kv_cache_manager.py
+@@ -6,8 +6,8 @@ from collections import defaultdict, deque
+ from collections.abc import Sequence
+ from typing import ClassVar
+ 
+-from vllm.utils.math_utils import cdiv
+ from vllm import envs
++from vllm.utils.math_utils import cdiv
+ from vllm.v1.core.block_pool import BlockPool
+ from vllm.v1.core.kv_cache_utils import (
+     BlockHashList,
+-- 
+2.55.0
+

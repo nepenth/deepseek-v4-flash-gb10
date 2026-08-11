@@ -1,0 +1,63 @@
+From 8bcc916a98a90822882455ab30aba02c409da2a6 Mon Sep 17 00:00:00 2001
+From: Flora Feng <4florafeng@gmail.com>
+Date: Mon, 10 Aug 2026 19:00:08 -0400
+Subject: [PATCH] [Bugfix] Fix DeepSeek V4/3.2 tokenizer vocab size overcount
+ crashing guided decoding (#51727)
+
+Signed-off-by: sfeng33 <4florafeng@gmail.com>
+Co-authored-by: Wentao Ye <44945378+yewentao256@users.noreply.github.com>
+---
+ vllm/tokenizers/deepseek_v32.py | 6 ------
+ vllm/tokenizers/deepseek_v4.py  | 5 -----
+ 2 files changed, 11 deletions(-)
+
+diff --git a/vllm/tokenizers/deepseek_v32.py b/vllm/tokenizers/deepseek_v32.py
+index b388f057..0e9aaa2c 100644
+--- a/vllm/tokenizers/deepseek_v32.py
++++ b/vllm/tokenizers/deepseek_v32.py
+@@ -19,8 +19,6 @@ def get_deepseek_v32_tokenizer(tokenizer: HfTokenizer) -> HfTokenizer:
+     dsv32_tokenizer = copy.copy(tokenizer)
+ 
+     added_vocab = tokenizer.get_added_vocab()
+-    added_vocab_size = len(added_vocab)
+-    tokenizer_vocab_size = tokenizer.vocab_size
+ 
+     class _DeepseekV32Tokenizer(tokenizer.__class__):  # type: ignore
+         def apply_chat_template(
+@@ -66,10 +64,6 @@ def get_deepseek_v32_tokenizer(tokenizer: HfTokenizer) -> HfTokenizer:
+         def num_special_tokens_to_add(self) -> int:
+             return len(self.encode(""))
+ 
+-        def __len__(self) -> int:
+-            # </think> is an added token in DeepseekV32 tokenizer
+-            return tokenizer_vocab_size + added_vocab_size
+-
+         def get_added_vocab(self) -> dict[str, int]:
+             return added_vocab.copy()
+ 
+diff --git a/vllm/tokenizers/deepseek_v4.py b/vllm/tokenizers/deepseek_v4.py
+index ce5b902c..2a0db215 100644
+--- a/vllm/tokenizers/deepseek_v4.py
++++ b/vllm/tokenizers/deepseek_v4.py
+@@ -19,8 +19,6 @@ def get_deepseek_v4_tokenizer(tokenizer: HfTokenizer) -> HfTokenizer:
+     dsv4_tokenizer = copy.copy(tokenizer)
+ 
+     added_vocab = tokenizer.get_added_vocab()
+-    added_vocab_size = len(added_vocab)
+-    tokenizer_vocab_size = tokenizer.vocab_size
+ 
+     class _DeepseekV4Tokenizer(tokenizer.__class__):  # type: ignore
+         def apply_chat_template(
+@@ -78,9 +76,6 @@ def get_deepseek_v4_tokenizer(tokenizer: HfTokenizer) -> HfTokenizer:
+         def num_special_tokens_to_add(self) -> int:
+             return len(self.encode(""))
+ 
+-        def __len__(self) -> int:
+-            return tokenizer_vocab_size + added_vocab_size
+-
+         def get_added_vocab(self) -> dict[str, int]:
+             return added_vocab.copy()
+ 
+-- 
+2.55.0
+

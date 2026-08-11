@@ -1,0 +1,246 @@
+From 15dc5af4dd4858ea0c292a9cd30ea719074d4670 Mon Sep 17 00:00:00 2001
+From: jasl <jasl9187@hotmail.com>
+Date: Sun, 9 Aug 2026 04:00:48 +0800
+Subject: [PATCH] fix: turn the guard on by default where the race can actually
+ bite
+
+The previous two commits were individually defensible and jointly wrong. Making
+V2 the default runner while leaving the guard's default at 0 meant a plain serve
+-- nothing set -- got V2 + prefix caching + DSpark with no guard, which is
+precisely the combination measured at arthur c=12 mean 11.5, 3 of 4 serves
+degraded, floor 3/24. Before this work the default was V1 without a guard at
+20.7. I had made the out-of-the-box configuration worse while each change looked
+like an improvement on its own. Our own serve script set the variable, so our
+measurements never saw it; anyone following the PR would have.
+
+The fix couples the two decisions where they belong. The env var now
+distinguishes UNSET (None) from an explicit 0/1/2, and KVCacheCoordinator raises
+the default to 2 when prefix caching and speculative decoding are both on -- the
+only configuration where a hash can be published before its KV is written and a
+second request can be admitted in the same step to match it.
+
+Deliberately in the coordinator, not in envs.py: a manager constructed directly
+still resolves to OFF, which is what keeps the step-agnostic tests in
+test_prefix_caching.py passing. An explicit value always wins, so `=0` remains a
+real escape hatch -- pinned by a test, because a guard you cannot switch off is
+a guard you cannot rule out when diagnosing something else.
+
+Two eagle tests did start failing, since they build a coordinator rather than a
+bare manager: both allocate for req0 and then for req1 expecting a hit, with no
+step boundary between them. That is the race, not a cache hit. Each gains one
+`new_step_starts()` call, which makes them exercise what they are actually about.
+
+Sweep: 276 passed, 1 failed -- that one failing identically on the pre-merge tree
+4ebd1fb698.
+
+Verified end to end rather than by inspection: with nothing set, dspark routes to
+V2 and the coordinator turns the guard on; with `=0` set, it stays off.
+---
+ tests/v1/core/test_ghost_block_guard.py      | 51 ++++++++++++++------
+ tests/v1/core/test_prefix_caching.py         | 12 +++++
+ vllm/envs.py                                 | 16 ++++--
+ vllm/v1/core/kv_cache_coordinator.py         | 19 ++++++++
+ vllm/v1/core/single_type_kv_cache_manager.py | 10 ++++
+ 5 files changed, 90 insertions(+), 18 deletions(-)
+
+diff --git a/tests/v1/core/test_ghost_block_guard.py b/tests/v1/core/test_ghost_block_guard.py
+index 53212ca5..b64dc613 100644
+--- a/tests/v1/core/test_ghost_block_guard.py
++++ b/tests/v1/core/test_ghost_block_guard.py
+@@ -69,19 +69,16 @@ def _mla_manager(block_pool):
+     )
+ 
+ 
+-def test_the_shipped_default_stays_0():
+-    """The default itself, not the property logic with a patched value.
+-
+-    It stays 0 to match upstream. tests/v1/core/test_prefix_caching.py calls
+-    allocate_slots repeatedly to represent successive scheduling steps without
+-    calling new_step_starts (the whole file calls it once), so with the guard on
+-    those hits are treated as same-step and correctly deferred, and 11 of those
+-    tests fail. Flipping the default here would fork them and break every future
+-    test written the same way. Deployments turn it on instead --
+-    scripts/dgx_spark_start_mp_serve.sh in the harness sets 2.
+-
+-    If this assertion ever fails because someone flipped the default, run
+-    tests/v1/core/test_prefix_caching.py before deciding they were right.
++def test_unset_env_resolves_to_the_engine_supplied_default():
++    """Unset must mean "let the engine decide", not "off".
++
++    The env resolves to None when unset. A manager constructed directly keeps
++    _guard_default_mode = 0 and is therefore OFF -- that is what keeps the
++    step-agnostic tests in test_prefix_caching.py green. KVCacheCoordinator
++    raises it to 2 when prefix caching and speculative decoding are both on.
++
++    Without this, the shipped default configuration would be V2 + guard off,
++    which is the combination measured at arthur c=12 mean 11.5, floor 3/24.
+     """
+     import os
+ 
+@@ -90,7 +87,33 @@ def test_the_shipped_default_stays_0():
+     )
+     import vllm.envs as envs
+ 
+-    assert envs.VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT == 0
++    assert envs.VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT is None
++
++    manager = _mla_manager(_pool())
++    manager.use_eagle = True
++    assert manager._guard_default_mode == 0
++    assert manager._ghost_block_guard_enabled is False, (
++        "a directly-constructed manager must stay off"
++    )
++
++    manager._guard_default_mode = 2      # what the coordinator does
++    assert manager._ghost_block_guard_enabled is True
++
++
++@pytest.mark.parametrize("make", [_full_manager, _mla_manager])
++def test_explicit_zero_beats_the_engine_default(make, monkeypatch):
++    """The escape hatch must survive the engine turning the guard on.
++
++    If `=0` stopped working once the coordinator raised the default, there would
++    be no way to rule the guard out as the cause of a problem in production.
++    """
++    monkeypatch.setattr(
++        "vllm.envs.VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT", 0, raising=False
++    )
++    manager = make(_pool())
++    manager.use_eagle = True
++    manager._guard_default_mode = 2
++    assert manager._ghost_block_guard_enabled is False
+ 
+ 
+ @pytest.mark.parametrize("make", [_full_manager, _mla_manager])
+diff --git a/tests/v1/core/test_prefix_caching.py b/tests/v1/core/test_prefix_caching.py
+index 417f3be0..59ca45d8 100644
+--- a/tests/v1/core/test_prefix_caching.py
++++ b/tests/v1/core/test_prefix_caching.py
+@@ -597,6 +597,12 @@ def test_prefill_hybrid_model_eagle():
+     # Incomplete 1 block (5 tokens)
+     unique_token_ids = [6] * 5
+     all_token_ids = common_token_ids + unique_token_ids
++    # A request may only hit blocks another request published in an EARLIER
++    # scheduling step -- within the same step the GPU has not written their
++    # KV yet (vllm-project/vllm#42359). Mark the boundary so this exercises
++    # the cache hit rather than the race the guard exists to prevent.
++    manager.new_step_starts()
++
+     req1 = make_request("1", all_token_ids, block_size, hash_fn)
+     computed_blocks, num_computed_tokens, _ = manager.get_computed_blocks(req1)
+     assert len(req1.block_hashes) == num_full_blocks
+@@ -987,6 +993,12 @@ def test_prefill_hybrid_model_combinations_eagle(
+ 
+     # Second request: should hit cached blocks for common prefix
+     all_token_ids = common_token_ids + [6] * 5
++    # A request may only hit blocks another request published in an EARLIER
++    # scheduling step -- within the same step the GPU has not written their
++    # KV yet (vllm-project/vllm#42359). Mark the boundary so this exercises
++    # the cache hit rather than the race the guard exists to prevent.
++    manager.new_step_starts()
++
+     req1 = make_request("1", all_token_ids, block_size, hash_fn)
+     computed_blocks, num_computed_tokens, _ = manager.get_computed_blocks(req1)
+ 
+diff --git a/vllm/envs.py b/vllm/envs.py
+index a455c866..bb5b1b0e 100755
+--- a/vllm/envs.py
++++ b/vllm/envs.py
+@@ -86,7 +86,7 @@ if TYPE_CHECKING:
+     VLLM_MAIN_CUDA_VERSION: str = "13.0"
+     VLLM_FLOAT32_MATMUL_PRECISION: Literal["highest", "high", "medium"] = "highest"
+     VLLM_BATCH_INVARIANT: bool = False
+-    VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT: int = 0
++    VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT: int | None = None
+     VLLM_TRITON_USE_TD: bool | None = None
+     # Deprecated alias of VLLM_TRITON_USE_TD (removed in v0.25).
+     VLLM_TRITON_ATTN_USE_TD: bool | None = None
+@@ -651,7 +651,13 @@ environment_variables: dict[str, Callable[[], Any]] = {
+     # DeepSeek-V4 uses -- does not. Defers such a reader by one scheduling step.
+     # 0 = off, 1 = upstream semantics (gated on use_eagle), 2 = every group.
+     #
+-    # SHIPPED DEFAULT IS 0, matching upstream, because 11 tests in
++    # UNSET (None) means "let the engine decide": KVCacheCoordinator turns the
++    # guard on for any group when prefix caching AND speculative decoding are both
++    # active, which is the only configuration where the race can bite. An explicit
++    # 0/1/2 always wins, so `=0` remains a real escape hatch.
++    #
++    # It resolves to OFF for a manager constructed directly, which is what keeps
++    # the upstream suite green: 11 tests in
+     # tests/v1/core/test_prefix_caching.py call allocate_slots repeatedly to
+     # represent SUCCESSIVE scheduling steps without ever calling
+     # new_step_starts() (the whole file calls it once). With the guard on they
+@@ -669,8 +675,10 @@ environment_variables: dict[str, Callable[[], Any]] = {
+     # It also lifts the default V1 runner from 20.7 to 23.0, so this is not a
+     # V2-only fix. Mode 1 is upstream's gate, which covers only 2 of 5 managers
+     # on this model and leaves the main MLA path unguarded -- hence 2.
+-    "VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT": lambda: int(
+-        os.getenv("VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT", "0")
++    "VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT": lambda: (
++        None
++        if os.getenv("VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT") is None
++        else int(os.environ["VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT"])
+     ),
+     # Use tensor descriptors for Q/K/V loads and output stores in the
+     # Triton unified-attention kernel.  Enables HW 2D block reads on
+diff --git a/vllm/v1/core/kv_cache_coordinator.py b/vllm/v1/core/kv_cache_coordinator.py
+index 98d17e6d..27f9c265 100644
+--- a/vllm/v1/core/kv_cache_coordinator.py
++++ b/vllm/v1/core/kv_cache_coordinator.py
+@@ -125,6 +125,25 @@ class KVCacheCoordinator(ABC):
+             for i, kv_cache_group in enumerate(self.kv_cache_config.kv_cache_groups)
+         )
+ 
++        # Same-step ghost-block guard default (PR #42359). The race needs prefix
++        # caching to publish a block hash before the forward writes its KV, and a
++        # second request admitted in the same step to match it; speculative
++        # decoding is what makes that overlap routine. When both are on and the
++        # operator has expressed no preference, default the guard ON -- otherwise
++        # the shipped default configuration (V2 runner + prefix caching + DSpark)
++        # is exactly the one measured at arthur c=12 mean 11.5 with 3 of 4 serves
++        # degraded and a floor of 3/24.
++        #
++        # Set here, in the base __init__, so every coordinator subclass inherits
++        # it and both flags are genuinely in scope. Deliberately NOT in envs.py:
++        # a manager constructed directly must still resolve to OFF, which is what
++        # keeps the step-agnostic tests in tests/v1/core/test_prefix_caching.py
++        # passing. An explicit VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT --
++        # including 0 -- overrides this.
++        if enable_caching and use_eagle:
++            for manager in self.single_type_managers:
++                manager._guard_default_mode = 2
++
+         # A positive retention interval must be a multiple of the base hit granularity
+         # (``scheduler_block_size``) to land on real cache-hit boundaries.
+         # 0 = keep only the latest replay boundary; None = dense;
+diff --git a/vllm/v1/core/single_type_kv_cache_manager.py b/vllm/v1/core/single_type_kv_cache_manager.py
+index a949c011..a1306e43 100644
+--- a/vllm/v1/core/single_type_kv_cache_manager.py
++++ b/vllm/v1/core/single_type_kv_cache_manager.py
+@@ -125,6 +125,12 @@ class SingleTypeKVCacheManager(ABC):
+         # admitted later in the SAME step must not be allowed to hit them.
+         self.cached_blocks_this_step: set[BlockHashWithGroupId] = set()
+ 
++        # Mode used when VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT is UNSET.
++        # KVCacheCoordinator raises this to 2 when prefix caching and speculative
++        # decoding are both on. It stays 0 for a manager constructed directly,
++        # which is what keeps the step-agnostic upstream tests passing.
++        self._guard_default_mode: int = 0
++
+         # Partial-hit copy-on-write bookkeeping. Populated only by fine-grained
+         # managers (full attention, mamba "align"); harmlessly empty elsewhere.
+         self._partial_hit_reqs: dict[str, tuple[int, KVCacheBlock]] = {}
+@@ -150,6 +156,10 @@ class SingleTypeKVCacheManager(ABC):
+         guard. ``MambaManager`` overrides this to always-on (PR #29387).
+         """
+         mode = envs.VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT
++        if mode is None:
++            # unset: the engine decides (see KVCacheCoordinator). An explicit
++            # value -- including 0 -- always wins over this.
++            mode = self._guard_default_mode
+         # 2 = every group, ignoring use_eagle. Upstream gates on use_eagle
+         # because it framed this as a spec-decode issue, but the race is in
+         # block publication and applies to any group with prefix caching on.
+-- 
+2.55.0
+

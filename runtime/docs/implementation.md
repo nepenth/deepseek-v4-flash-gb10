@@ -1,4 +1,9 @@
-# Spark-specific integration
+# Historical v0.25 Spark integration
+
+> This document describes the archived `overlay/` implementation. The active
+> vLLM 0.27.1 build uses native upstream DeepSeek V4, DSpark, SM121 sparse MLA,
+> and `flashinfer_b12x` modules plus `patches/vllm/series`; it does not install
+> this overlay. See the parent repo's `docs/RUNTIME_V0271_GB10.md`.
 
 FlashInfer includes the native SM120/SM121 DeepSeek V4 sparse MLA kernel, but
 the pinned vLLM wrapper does not fully describe Spark's NVFP4 layout. The

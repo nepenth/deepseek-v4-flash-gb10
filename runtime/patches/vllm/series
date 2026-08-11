@@ -1,0 +1,12 @@
+# Cleanly applicable to VLLM_COMMIT in upstream.lock, in this exact order.
+0001-Frontend-DeepSeek-V4-0731-reasoning-effort-prompts-m.patch
+0002-Bugfix-Fix-DeepSeek-V4-3.2-tokenizer-vocab-size-over.patch
+0003-Fix-DSpark-warmup-without-sparse-index-buffer-50693.patch
+0004-Perf-Narrow-DeepSeek-V4-eager-CUDA-graph-region-5143.patch
+
+# Port of upstream vLLM PR #42359 plus the SM121/DeepSeek-V4 coverage fixes
+# validated by the maintained PR #41834 preview branch.
+0005-fix-defer-same-step-prefix-hits-on-not-yet-written-b.patch
+0006-fix-make-the-ghost-block-guard-cover-every-group-not.patch
+0007-fix-keep-the-guard-s-shipped-default-at-0-and-fix-th.patch
+0008-fix-turn-the-guard-on-by-default-where-the-race-can-.patch

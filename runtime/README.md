@@ -1,12 +1,35 @@
 # DSpark vLLM for two DGX Spark / ASUS GX10 nodes
 
-This is a tested two-node GB10 port of the DeepSeek V4 Flash DSpark/NVFP4
-serving path to vLLM 0.25.1. It bridges vLLM's DeepSeek V4 runtime to
-FlashInfer's native SM120/SM121 sparse-MLA kernel, adds a b12x native-MXFP4 MoE
-backend, and packages reproducible deployment, a live dashboard, version
-switching, and benchmark evidence.
+This directory is the history-preserving import of
+`Anemll/dspark-vllm-gx10`, now used as the source-build component of the
+combined recipe. The active build pins vLLM 0.27.1 and applies the ordered
+patch series under `patches/vllm/`; it does not copy the v0.25 `overlay/` into
+the new source tree.
 
-## Validated configuration
+The benchmark results and overlay below describe the validated v0.25.1 image
+and remain as historical evidence. The v0.27.1 image needs fresh two-node GB10
+validation before it inherits any of those performance claims.
+
+## Current development build
+
+```bash
+./scripts/prepare-source.sh  # source and patch contract only
+./scripts/build-image.sh     # dspark-vllm-gb10:v0.27.1
+```
+
+Current runtime inputs:
+
+- vLLM `v0.27.1` at `6e448d0ea9bf3d88d898b65449ca6dc2aec170ac`;
+- CUDA 13.0.3, PyTorch 2.13.0, FlashInfer 0.6.16.post3;
+- ARM64/GB10 build with `TORCH_CUDA_ARCH_LIST=12.1a`;
+- native `fp8_ds_mla`, DSpark, DeepSeek V4 SM121 sparse MLA, and
+  `flashinfer_b12x`;
+- no post-build dependency downgrade and no installed-package file overlay.
+
+The old `nvfp4_ds_mla` spelling was an FP8 compatibility alias, not a true
+packed 4-bit KV cache. See the parent repo's `docs/NVFP4_DS_MLA.md`.
+
+## Historical validated configuration (v0.25.1)
 
 - 2 × NVIDIA DGX Spark or ASUS Ascent GX10 (GB10, SM121, ARM64)
 - dedicated high-speed fabric between nodes
@@ -17,7 +40,7 @@ switching, and benchmark evidence.
 - FlashInfer pinned to `0472b9b3f2fba11b463f8526f390297d52a8aad7`
 - b12x pinned to `7dc6fb8fcc6446ea093537d1657df81985fa5f43`
 
-## What this port changes
+## Historical overlay changes
 
 - adds `nvfp4_ds_mla` as a first-class DeepSeek V4 KV-cache format throughout
   vLLM configuration, quantization, and cache-size accounting;
@@ -97,11 +120,10 @@ The prebuilt ARM64 image is published as:
 ghcr.io/anemll/dspark-vllm-gx10:0.1.1
 ```
 
-To reproduce it locally, run `./scripts/build-image.sh`. The script checks out
-the exact vLLM commit in `upstream.lock`, applies `overlay/`, builds the vLLM
-ARM64 image, and installs pinned FlashInfer and b12x Git revisions. The b12x
-pin is intentionally a Git commit: the tested `0.15.3` source was not released
-on PyPI.
+To build the development image, run `./scripts/build-image.sh`. The script
+checks out the exact vLLM 0.27.1 commit in `upstream.lock`, verifies and applies
+`patches/vllm/series`, builds upstream's ARM64 `vllm-openai` target for SM121,
+and adds an immutable metadata layer. vLLM owns the dependency versions.
 
 `docker/Dockerfile.promote-tested` is a maintainer-only release step that adds
 OCI source/revision labels and bundled license notices to an image that has

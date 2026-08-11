@@ -60,6 +60,27 @@ repo builds from:
 
 - https://github.com/MiaAI-Lab/DeepSeek-v4-Flash-DSpark-2x-DGX-Spark
 
+## GB10 Runtime And NVFP4 Research
+
+Anemll published the two-node GB10 vLLM runtime imported with history under
+`runtime/`:
+
+- https://github.com/Anemll/dspark-vllm-gx10
+
+The true packed-NVFP4 KV research is based on public implementations from
+Kacper Daftcode's vLLM-Moet fork and the local-inference-lab b12x project. They
+are pinned as research references in `runtime/upstream.lock`; no code from
+either project is copied into the production image:
+
+- https://github.com/kacper-daftcode/vLLM-Moet
+- https://github.com/local-inference-lab/b12x
+
+The SM121 patch selection and prefix-cache correctness work also uses the
+maintained vLLM PR #41834 preview as a validation reference:
+
+- https://github.com/vllm-project/vllm/pull/41834
+- https://github.com/vllm-project/vllm/pull/42359
+
 ## Upstream Foundations
 
 This work also relies on:
@@ -89,7 +110,8 @@ validated runs.
 
 Repo-local scripts and docs are MIT licensed via `LICENSE`.
 
-The vLLM overlay files and `patches/keys-concurrency.patch` are vLLM/DSpark
-derived and retain their Apache-2.0 lineage from the upstream sources and
-Keys' patch repo. Model weights, base images, CUDA/NCCL, FlashInfer, TileLang,
-and Triton are separate upstream artifacts with their own licenses and terms.
+The vLLM overlay files, `runtime/patches/vllm/`, and
+`patches/keys-concurrency.patch` are vLLM/DSpark-derived and retain their
+Apache-2.0 lineage from the upstream sources and patch authors. Model weights,
+base images, CUDA/NCCL, FlashInfer, TileLang, and Triton are separate upstream
+artifacts with their own licenses and terms.

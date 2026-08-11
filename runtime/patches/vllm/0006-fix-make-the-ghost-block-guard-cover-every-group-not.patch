@@ -1,0 +1,115 @@
+From 786582103a07a7c0d9d009cbe3cd75664aa3e2fb Mon Sep 17 00:00:00 2001
+From: jasl <jasl9187@hotmail.com>
+Date: Sat, 8 Aug 2026 19:53:55 +0800
+Subject: [PATCH] fix: make the ghost-block guard cover every group, not just
+ eagle groups
+
+The startup log added in the previous commit paid for itself immediately. With
+the flag set, DeepSeek-V4 reported:
+
+    Same-step ghost-block guard: 2/5 managers active (SlidingWindowMLAManager)
+
+Upstream gates the guard on `use_eagle`, having framed the race as a spec-decode
+problem. But KVCacheCoordinator only sets use_eagle on managers whose group is
+in eagle_group_ids, and its fallback to "flag every group" fires only when NO
+group is flagged. On DSv4 the sliding-window groups ARE flagged, so the fallback
+never runs and MLAAttentionManager -- the main attention path, and the one the
+recall gate exercises -- was left completely unguarded.
+
+The race is in block publication: a hash is committed to the shared BlockPool at
+scheduling time, before the forward writes the KV. Nothing about that is
+specific to speculative decoding. So the env var becomes tri-state:
+0 = off, 1 = upstream semantics (use_eagle-gated), 2 = every group.
+
+Without that log line this would have run a 45-minute A/B whose treatment arm
+was 40% applied, produced no clear improvement, and invited the conclusion that
+the mechanism was wrong -- when the patch simply was not enabled where it
+mattered. Reading a condition back from the engine is worth more than setting it
+carefully.
+---
+ tests/v1/core/test_ghost_block_guard.py      | 18 ++++++++++++++++++
+ vllm/envs.py                                 |  9 ++++++---
+ vllm/v1/core/single_type_kv_cache_manager.py | 11 ++++++++++-
+ 3 files changed, 34 insertions(+), 4 deletions(-)
+
+diff --git a/tests/v1/core/test_ghost_block_guard.py b/tests/v1/core/test_ghost_block_guard.py
+index bb6a2d30..ea0b118d 100644
+--- a/tests/v1/core/test_ghost_block_guard.py
++++ b/tests/v1/core/test_ghost_block_guard.py
+@@ -97,6 +97,24 @@ def test_gate_reads_use_eagle_at_call_time(make, use_eagle, expected, monkeypatc
+     assert manager._ghost_block_guard_enabled is expected
+ 
+ 
++@pytest.mark.parametrize("make", [_full_manager, _mla_manager])
++def test_mode_2_covers_every_group_regardless_of_use_eagle(make, monkeypatch):
++    """Mode 2 is why the env var is tri-state rather than a bool.
++
++    Upstream gates on use_eagle, having framed this as a spec-decode issue. On
++    DeepSeek-V4 only the sliding-window groups carry the eagle flag, so mode 1
++    measured 2 of 5 managers active and left MLAAttentionManager -- the main
++    attention path -- unguarded. The race is in block publication and does not
++    care about spec decode, so mode 2 covers every group.
++    """
++    monkeypatch.setattr(
++        "vllm.envs.VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT", 2, raising=False
++    )
++    manager = make(_pool())
++    manager.use_eagle = False  # the case mode 1 leaves unguarded
++    assert manager._ghost_block_guard_enabled is True
++
++
+ def test_mamba_guard_is_always_on(monkeypatch):
+     """Mamba's guard predates the env var (#29387) and must ignore it."""
+     monkeypatch.setattr(
+diff --git a/vllm/envs.py b/vllm/envs.py
+index 1f6ae1e6..8b9cf703 100755
+--- a/vllm/envs.py
++++ b/vllm/envs.py
+@@ -86,7 +86,7 @@ if TYPE_CHECKING:
+     VLLM_MAIN_CUDA_VERSION: str = "13.0"
+     VLLM_FLOAT32_MATMUL_PRECISION: Literal["highest", "high", "medium"] = "highest"
+     VLLM_BATCH_INVARIANT: bool = False
+-    VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT: bool = False
++    VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT: int = 0
+     VLLM_TRITON_USE_TD: bool | None = None
+     # Deprecated alias of VLLM_TRITON_USE_TD (removed in v0.25).
+     VLLM_TRITON_ATTN_USE_TD: bool | None = None
+@@ -650,8 +650,11 @@ environment_variables: dict[str, Callable[[], Any]] = {
+     # against this since #29387; every other manager -- including the MLA ones
+     # DeepSeek-V4 uses -- does not. When True, defer such a reader by one
+     # scheduling step. Off by default; only active when spec decode is enabled.
+-    "VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT": lambda: bool(
+-        int(os.getenv("VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT", "0"))
++    # 0 = off, 1 = upstream semantics (gated on use_eagle), 2 = every group.
++    # 2 exists because on DeepSeek-V4 only the sliding-window groups carry the
++    # eagle flag, so 1 guards 2 of 5 managers and leaves the main MLA path open.
++    "VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT": lambda: int(
++        os.getenv("VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT", "0")
+     ),
+     # Use tensor descriptors for Q/K/V loads and output stores in the
+     # Triton unified-attention kernel.  Enables HW 2D block reads on
+diff --git a/vllm/v1/core/single_type_kv_cache_manager.py b/vllm/v1/core/single_type_kv_cache_manager.py
+index 733bda52..4cb8b77c 100644
+--- a/vllm/v1/core/single_type_kv_cache_manager.py
++++ b/vllm/v1/core/single_type_kv_cache_manager.py
+@@ -149,7 +149,16 @@ class SingleTypeKVCacheManager(ABC):
+         construction time would always see ``False`` and silently disable the
+         guard. ``MambaManager`` overrides this to always-on (PR #29387).
+         """
+-        return envs.VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT and self.use_eagle
++        mode = envs.VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT
++        # 2 = every group, ignoring use_eagle. Upstream gates on use_eagle
++        # because it framed this as a spec-decode issue, but the race is in
++        # block publication and applies to any group with prefix caching on.
++        # On DeepSeek-V4 only the sliding-window groups are flagged as eagle
++        # groups, so upstream's gate leaves MLAAttentionManager -- the main
++        # attention path -- unguarded (measured: 2/5 managers active).
++        if mode >= 2:
++            return True
++        return bool(mode) and self.use_eagle
+ 
+     @classmethod
+     def _get_num_evictable_blocks(cls, blocks: Sequence[KVCacheBlock]):
+-- 
+2.55.0
+

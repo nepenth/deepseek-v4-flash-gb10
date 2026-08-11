@@ -1,0 +1,3 @@
+# Mail-formatted upstream patches contain standard signature separators and
+# preserve source whitespace. Validate the applied tree, not the mail wrapper.
+runtime/patches/vllm/*.patch whitespace=-trailing-space,-blank-at-eof

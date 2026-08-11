@@ -1,4 +1,8 @@
-# Environment variable matrix (Anemll 0.1.1 vs Stage-C overlay)
+# Historical environment matrix (Anemll 0.1.1 vs Stage-C overlay)
+
+> This matrix does not describe the active vLLM 0.27.1 image. It is retained
+> for operators reproducing the older Anemll and Stage-C lanes. See
+> `docs/RUNTIME_V0271_GB10.md` for the current runtime contract.
 
 This recipe defaults to the prebuilt image:
 

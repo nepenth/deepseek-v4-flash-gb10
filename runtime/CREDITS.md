@@ -87,6 +87,20 @@ the earlier stack. That contribution should remain credited in descriptions of
 the earlier deployment. This repository does not redistribute it as a separate
 patch; the current build starts from the pinned upstream vLLM source.
 
+## vLLM 0.27.1 development lane
+
+The combined parent repository now builds vLLM 0.27.1 directly and keeps this
+v0.25 overlay only for provenance. Its ordered patch series includes upstream
+vLLM commits and the SM121 port of the open prefix-cache correctness fix:
+
+- https://github.com/vllm-project/vllm/pull/42359
+- https://github.com/vllm-project/vllm/pull/41834
+
+True packed-NVFP4 MLA KV research references are pinned but not copied:
+
+- https://github.com/local-inference-lab/b12x
+- https://github.com/kacper-daftcode/vLLM-Moet
+
 ## Work introduced in this repository
 
 The new downstream work is the vLLM 0.25 NVFP4/DSpark bridge, the expanded

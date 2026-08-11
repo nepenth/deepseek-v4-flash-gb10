@@ -9,7 +9,6 @@ WAIT_ATTEMPTS="${WAIT_ATTEMPTS:-100}"
 WAIT_SECONDS="${WAIT_SECONDS:-15}"
 ENABLE_VLLM_GB10_PATCH="${ENABLE_VLLM_GB10_PATCH:-0}"
 VLLM_GB10_PATCH_DIR="${VLLM_GB10_PATCH_DIR:-$SCRIPT_DIR/vllm_patch_gb10}"
-DSPARK_PROPOSER_FILE="${DSPARK_PROPOSER_FILE:-$SCRIPT_DIR/recipe/vllm/v1/spec_decode/dspark_proposer.py}"
 CLI_VLLM_HOST=""
 CLI_VLLM_PORT=""
 
@@ -78,6 +77,20 @@ set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
+
+# The v0.25 image used nvfp4_ds_mla as a compatibility name for its FP8
+# DS-MLA record. vLLM 0.27.1 calls that path fp8_ds_mla. Generic "nvfp4" is a
+# different cache mode and is not supported by the SM121 sparse-MLA backend.
+KV_CACHE_DTYPE="${KV_CACHE_DTYPE:-fp8_ds_mla}"
+if [ "$KV_CACHE_DTYPE" = "nvfp4_ds_mla" ]; then
+  echo "warning: KV_CACHE_DTYPE=nvfp4_ds_mla is a legacy FP8 alias; using fp8_ds_mla" >&2
+  KV_CACHE_DTYPE=fp8_ds_mla
+fi
+if [ "$KV_CACHE_DTYPE" != "fp8_ds_mla" ]; then
+  echo "KV_CACHE_DTYPE must be fp8_ds_mla for the v0.27.1 SM121 sparse-MLA runtime (got: $KV_CACHE_DTYPE)" >&2
+  exit 2
+fi
+export KV_CACHE_DTYPE
 
 # Vision mode flag selects 0731 GPU util (and whether the VL sidecar starts).
 #   ENABLE_VL_SIDECAR=1 → vision coexist → GPU_MEMORY_UTILIZATION_VISION (default 0.80)
@@ -331,14 +344,15 @@ resolve_nccl_gid_indexes() {
 
 remote_nccl_env() {
   # Rebuild each call so GID resolve after early init is visible on the worker.
-  printf "NCCL_IB_HCA='%s' NCCL_SOCKET_IFNAME='%s' TP_SOCKET_IFNAME='%s' GLOO_SOCKET_IFNAME='%s' NCCL_IB_GID_INDEX='%s' VLLM_HOST='%s' VLLM_PORT='%s'" \
+  printf "NCCL_IB_HCA='%s' NCCL_SOCKET_IFNAME='%s' TP_SOCKET_IFNAME='%s' GLOO_SOCKET_IFNAME='%s' NCCL_IB_GID_INDEX='%s' VLLM_HOST='%s' VLLM_PORT='%s' KV_CACHE_DTYPE='%s'" \
     "$WORKER_NCCL_IB_HCA" \
     "$WORKER_NCCL_SOCKET_IFNAME" \
     "$WORKER_TP_SOCKET_IFNAME" \
     "$WORKER_GLOO_SOCKET_IFNAME" \
     "$WORKER_NCCL_IB_GID_INDEX" \
     "$VLLM_HOST" \
-    "$VLLM_PORT"
+    "$VLLM_PORT" \
+    "$KV_CACHE_DTYPE"
 }
 
 compose_base() {
@@ -351,6 +365,7 @@ compose_base() {
     NCCL_IB_GID_INDEX="${NCCL_IB_GID_INDEX:-}" \
     VLLM_HOST="$VLLM_HOST" \
     VLLM_PORT="$VLLM_PORT" \
+    KV_CACHE_DTYPE="$KV_CACHE_DTYPE" \
     VLLM_HOST_IP="$VLLM_HOST_IP" \
     GPU_MEMORY_UTILIZATION="$GPU_MEMORY_UTILIZATION" \
     DSPARK_MODEL="$DSPARK_MODEL" \
@@ -425,6 +440,7 @@ print_resolved_profile() {
   echo "  max batched tokens: ${MAX_NUM_BATCHED_TOKENS:-8192}"
   echo "  gpu memory utilization: ${GPU_MEMORY_UTILIZATION:-0.80} (text default ${GPU_MEMORY_UTILIZATION_TEXT:-0.835} / vision default ${GPU_MEMORY_UTILIZATION_VISION:-0.80})"
   echo "  mtp speculative tokens: ${MTP_NUM_TOKENS:-5} (dspark_block_size min is 5)"
+  echo "  KV cache dtype: $KV_CACHE_DTYPE"
   echo "  default thinking: $DEFAULT_THINKING (off/low/high/max)"
   echo "  cudagraph capture size: $(( ${MAX_NUM_SEQS:-6} * (${MTP_NUM_TOKENS:-5} + 1) ))"
   echo "  API bind: $VLLM_HOST:$VLLM_PORT"
@@ -444,13 +460,6 @@ print_resolved_profile() {
     echo "  vision MCP install: ${INSTALL_VISION_MCP:-1} (only when ENABLE_VL_SIDECAR=1; harnesses: ${VISION_MCP_HARNESSES:-auto})"
   else
     echo "  VL sidecar: disabled (text-only 0731)"
-  fi
-  if [ "${DSPARK_SKIP_HOTFIX:-0}" = "1" ]; then
-    echo "  Issue #22 hotfix: SKIPPED (DSPARK_SKIP_HOTFIX=1)"
-  elif [ -f "$SCRIPT_DIR/patches/hotfix-nvfp4-ds-mla-issue22.sh" ]; then
-    echo "  Issue #22 hotfix: will apply on start"
-  else
-    echo "  Issue #22 hotfix: not found"
   fi
   if [ "$ENABLE_VLLM_GB10_PATCH" = "1" ]; then
     echo "  GB10 vLLM patch dir: $VLLM_GB10_PATCH_DIR"
@@ -477,11 +486,6 @@ fi
 
 if [ "$ENABLE_VLLM_GB10_PATCH" = "1" ] && [ ! -d "$VLLM_GB10_PATCH_DIR" ]; then
   echo "Missing GB10 vLLM patch directory: $VLLM_GB10_PATCH_DIR" >&2
-  exit 1
-fi
-
-if [ ! -f "$DSPARK_PROPOSER_FILE" ]; then
-  echo "Missing DSpark proposer bind-mount source: $DSPARK_PROPOSER_FILE" >&2
   exit 1
 fi
 
@@ -529,19 +533,6 @@ SIDECAR_COMPOSE_FILE="${SIDECAR_COMPOSE_FILE:-$SCRIPT_DIR/docker-compose.vl-side
 if [ -f "$SIDECAR_COMPOSE_FILE" ]; then
   scp "$SIDECAR_COMPOSE_FILE" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/docker-compose.vl-sidecar.yml"
 fi
-ssh "$WORKER_HOST" "mkdir -p $REMOTE_WORKER_DIR/recipe/vllm/v1/spec_decode"
-scp "$DSPARK_PROPOSER_FILE" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/recipe/vllm/v1/spec_decode/dspark_proposer.py"
-DSPARK_HOTFIX_FILE="$SCRIPT_DIR/patches/hotfix-nvfp4-ds-mla-issue22.sh"
-if [ -f "$DSPARK_HOTFIX_FILE" ]; then
-  echo "Syncing Issue #22 hotfix to ${WORKER_HOST}:${WORKER_DIR}"
-  scp "$DSPARK_HOTFIX_FILE" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/hotfix-nvfp4-ds-mla-issue22.sh"
-fi
-DSPARK_ENCODING_ISSUE21_HOTFIX="${DSPARK_ENCODING_ISSUE21_HOTFIX:-$SCRIPT_DIR/patches/hotfix-encoding-dsv4-issue21.py}"
-if [ -f "$DSPARK_ENCODING_ISSUE21_HOTFIX" ]; then
-  echo "Syncing Issue #21 encoding hotfix to ${WORKER_HOST}:${WORKER_DIR}/patches/"
-  ssh "$WORKER_HOST" "mkdir -p '${REMOTE_WORKER_DIR}/patches'"
-  scp "$DSPARK_ENCODING_ISSUE21_HOTFIX" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/patches/hotfix-encoding-dsv4-issue21.py"
-fi
 if [ "$ENABLE_VLLM_GB10_PATCH" = "1" ]; then
   echo "Syncing GB10 vLLM patch to ${WORKER_HOST}:${WORKER_DIR}/vllm_patch_gb10"
   tar -C "$VLLM_GB10_PATCH_DIR" \
@@ -562,32 +553,6 @@ compose_base 0 "" up -d
 # DeepSeek and VL must not GPU-profile concurrently. VL uses a separate
 # NCCL master port (VL_SIDECAR_MASTER_PORT, default 25100).
 SIDECAR_COMPOSE_FILE="${SIDECAR_COMPOSE_FILE:-$SCRIPT_DIR/docker-compose.vl-sidecar.yml}"
-
-# ---- Apply Issue #22 hotfix (nvfp4_ds_mla long-context decode) ----
-# Patches vLLM inside the running containers, then restarts them so the
-# patched files take effect.  Idempotent — skips already-applied patches.
-# Set DSPARK_SKIP_HOTFIX=1 to opt out.
-DSPARK_HOTFIX_FILE="$SCRIPT_DIR/patches/hotfix-nvfp4-ds-mla-issue22.sh"
-if [ "${DSPARK_SKIP_HOTFIX:-0}" != "1" ] && [ -f "$DSPARK_HOTFIX_FILE" ]; then
-  echo "Applying Issue #22 hotfix (nvfp4_ds_mla long-context decode fix)..."
-  # Head container
-  if docker ps --format '{{.Names}}' | grep -qx "${PROJECT_NAME}-vllm-dspark-1"; then
-    docker cp "$DSPARK_HOTFIX_FILE" "${PROJECT_NAME}-vllm-dspark-1:/tmp/hotfix-nvfp4-ds-mla-issue22.sh"
-    docker exec "${PROJECT_NAME}-vllm-dspark-1" bash /tmp/hotfix-nvfp4-ds-mla-issue22.sh || true
-  fi
-  # Worker container (via SSH)
-  REMOTE_HOTFIX="${REMOTE_WORKER_DIR}/hotfix-nvfp4-ds-mla-issue22.sh"
-  ssh "$WORKER_HOST" "if [ -f '$REMOTE_HOTFIX' ]; then docker ps --format '{{.Names}}' | grep -qx '${PROJECT_NAME}-vllm-dspark-1' && docker cp '$REMOTE_HOTFIX' '${PROJECT_NAME}-vllm-dspark-1:/tmp/hotfix-nvfp4-ds-mla-issue22.sh' && docker exec '${PROJECT_NAME}-vllm-dspark-1' bash /tmp/hotfix-nvfp4-ds-mla-issue22.sh; fi" || true
-  # Restart both containers so vLLM picks up the patched files
-  echo "Restarting DSpark containers to apply hotfix..."
-  ssh "$WORKER_HOST" "$REMOTE_COMPOSE $(remote_nccl_env) NODE_RANK=1 HEADLESS=1 HF_CACHE='$WORKER_HF_CACHE' VLLM_HOST_IP='$WORKER_VLLM_HOST_IP' GPU_MEMORY_UTILIZATION='$GPU_MEMORY_UTILIZATION' DSPARK_MODEL='$DSPARK_MODEL' DSPARK_REVISION='${DSPARK_REVISION:-}' docker compose -p '$PROJECT_NAME' --env-file .env.dspark -f docker-compose.dspark.yml restart vllm-dspark" || true
-  compose_base 0 "" restart vllm-dspark || true
-  echo "Hotfix applied and containers restarted."
-else
-  if [ "${DSPARK_SKIP_HOTFIX:-0}" = "1" ]; then
-    echo "Skipping Issue #22 hotfix (DSPARK_SKIP_HOTFIX=1)."
-  fi
-fi
 
 echo "Waiting for DSpark vLLM API..."
 print_initial_startup_logs
