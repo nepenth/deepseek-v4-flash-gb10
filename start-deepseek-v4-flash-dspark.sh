@@ -109,11 +109,11 @@ if (( 10#$KV_BLOCK_SIZE < 1 )); then
   echo "KV_BLOCK_SIZE must be a positive integer (got: $KV_BLOCK_SIZE)" >&2
   exit 2
 fi
-# FlashInfer 0.6.16's DSV4 <=64-token SM120 decoder is instantiated for
-# 64-token KV pages only. Keep this candidate guard tied to the profile
-# override so generic/legacy Compose users retain their own page geometry.
-if [ -n "${VLLM_SWITCH_KV_BLOCK_SIZE:-}" ] && [ "$KV_BLOCK_SIZE" != "64" ]; then
-  echo "The SM120 DeepSeek V4 FlashInfer candidate requires KV_BLOCK_SIZE=64 (got: $KV_BLOCK_SIZE)" >&2
+# The candidate retains vLLM's 256-token global KV-cache pages so C128
+# compressed layers have nonzero storage. Its source patch zero-copy splits
+# only the SWA cache into FlashInfer's required 64-token decode pages.
+if [ -n "${VLLM_SWITCH_KV_BLOCK_SIZE:-}" ] && [ "$KV_BLOCK_SIZE" != "256" ]; then
+  echo "The SM120 DeepSeek V4 FlashInfer candidate requires KV_BLOCK_SIZE=256 (got: $KV_BLOCK_SIZE)" >&2
   exit 2
 fi
 MOE_BACKEND="${MOE_BACKEND:-flashinfer_b12x}"

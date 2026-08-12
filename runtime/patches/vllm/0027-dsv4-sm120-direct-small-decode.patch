@@ -67,6 +67,46 @@ index d8742e6..cf0f923 100644
  def _packed_block_span(pool: torch.Tensor) -> int:
      """Per-block stride of ``pool`` in tokens (``stride(0)//stride(-2)``): ==
      block_size for unpacked KV, larger when packed (#44577). Raises if not
+@@ -546,10 +569,36 @@ class DeepseekV4FlashInferSM120Attention(DeepseekV4Attention):
+     @staticmethod
+     def _as_sparse_cache(kv_cache: torch.Tensor) -> torch.Tensor:
+         if kv_cache.dtype == torch.float8_e4m3fn:
+             kv_cache = kv_cache.view(torch.uint8)
+-        if kv_cache.dim() == 4:
+-            return kv_cache
+-        return kv_cache.unsqueeze(-2)
++        if kv_cache.dim() != 4:
++            kv_cache = kv_cache.unsqueeze(-2)
++
++        # vLLM allocates 256-token physical pages for the global KV cache.
++        # FlashInfer's SM120 DSV4 small-decode kernel, however, consumes the
++        # SWA cache as 64-token pages. The packed token records are contiguous
++        # and sparse indices are global slots, so split only oversized SWA
++        # pages into zero-copy 64-token views. C4A (64-token) and C128A
++        # (2-token) compressed pages deliberately retain their native geometry.
++        if (
++            kv_cache.dtype == torch.uint8
++            and kv_cache.shape[-1] == 584
++            and kv_cache.shape[-3] > 64
++        ):
++            page_size = kv_cache.shape[-3]
++            if page_size % 64 != 0:
++                raise ValueError(
++                    "Packed SM120 DSV4 SWA page size must be a multiple of 64, "
++                    f"got {page_size}."
++                )
++            expected_strides = (page_size * 584, 584, 584, 1)
++            if kv_cache.stride() != expected_strides:
++                raise ValueError(
++                    "Packed SM120 DSV4 KV cache cannot be split into zero-copy "
++                    f"64-token SWA pages: shape={tuple(kv_cache.shape)}, "
++                    f"strides={kv_cache.stride()}, expected={expected_strides}."
++                )
++            kv_cache = kv_cache.view(-1, 64, 1, 584)
++        return kv_cache
+ 
+     @classmethod
+     def get_padded_num_q_heads(cls, num_heads: int) -> int:
 @@ -580,6 +603,15 @@ class DeepseekV4FlashInferSM120Attention(DeepseekV4Attention):
                  "FLASHINFER_MLA_SPARSE_DSV4 on SM120 requires FlashInfer's "
                  "sparse MLA decode API."
