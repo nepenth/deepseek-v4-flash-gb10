@@ -141,6 +141,19 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn('TRITON_CACHE_DIR: "${TRITON_CACHE_DIR:-', compose)
         self.assertIn("DSPARK_MODEL_HOST", compose)
 
+    def test_cluster_long_context_baseline_matches_candidate_envelope(self) -> None:
+        profile = (
+            ROOT / "cluster/profiles/deepseek-v4-flash-0731-dspark-1m-baseline.conf"
+        ).read_text()
+        for setting in (
+            '"MAX_LEN=1048576"',
+            '"MAX_SEQS=6"',
+            '"BATCHED=8192"',
+            '"GMU=0.84"',
+            '"K=5"',
+        ):
+            self.assertIn(setting, profile)
+
     def test_deepgemm_router_counter_warmup_patch_is_included(self) -> None:
         patch = (
             RUNTIME / "patches/vllm/0028-warm-deepgemm-router-token-counter.patch"
