@@ -13,19 +13,19 @@ Patch the pinned dependency during FetchContent population so it creates FA3
 only when the filtered target list actually contains Hopper. FA2 and the
 Blackwell-specific attention backends remain unchanged.
 ---
- .../patches/flash-attn-skip-fa3-without-sm90.patch | 14 ++++++++++++++
+ .../patches/flash-attn-skip-fa3-without-sm90.patch | 15 +++++++++++++++
  cmake/external_projects/vllm_flash_attn.cmake      |  1 +
- 2 files changed, 15 insertions(+)
+ 2 files changed, 16 insertions(+)
  create mode 100644 cmake/external_projects/patches/flash-attn-skip-fa3-without-sm90.patch
 
 diff --git a/cmake/external_projects/patches/flash-attn-skip-fa3-without-sm90.patch b/cmake/external_projects/patches/flash-attn-skip-fa3-without-sm90.patch
 new file mode 100644
-index 000000000..c3ec433e2
+index 000000000..5215eda7d
 --- /dev/null
 +++ b/cmake/external_projects/patches/flash-attn-skip-fa3-without-sm90.patch
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,15 @@
 +diff --git a/CMakeLists.txt b/CMakeLists.txt
-+index f4d55a1..c3ec433 100644
++index f4d55a1..5215eda 100644
 +--- a/CMakeLists.txt
 ++++ b/CMakeLists.txt
 +@@ -190,2 +190,4 @@ endif ()
@@ -35,8 +35,9 @@ index 000000000..c3ec433e2
 ++# the target when its architecture intersection is empty: an empty per-source
 ++# architecture list otherwise makes CMake compile every SM90 instantiation.
 ++if (FA3_ENABLED AND ${CMAKE_CUDA_COMPILER_VERSION} GREATER_EQUAL 12.0 AND "9.0" IN_LIST CUDA_ARCHS)
-+@@ -322,0 +325,2 @@ if (FA3_ENABLED AND ${CMAKE_CUDA_COMPILER_VERSION} GREATER_EQUAL 12.0)
++@@ -322,0 +325,3 @@ if (FA3_ENABLED AND ${CMAKE_CUDA_COMPILER_VERSION} GREATER_EQUAL 12.0)
 ++elseif(FA3_ENABLED AND ${CMAKE_CUDA_COMPILER_VERSION} GREATER_EQUAL 12.0)
+++    add_custom_target(_vllm_fa3_C)
 ++    message(STATUS "FA3 is disabled because the target architectures do not include Hopper SM90.")
 diff --git a/cmake/external_projects/vllm_flash_attn.cmake b/cmake/external_projects/vllm_flash_attn.cmake
 index 6c3b94693..1d910cd08 100644

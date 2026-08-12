@@ -85,6 +85,8 @@ if [[ "$phase" == "patched" ]]; then
     cmake/external_projects/vllm_flash_attn.cmake
   require_text 'target architectures do not include Hopper SM90' \
     cmake/external_projects/patches/flash-attn-skip-fa3-without-sm90.patch
+  require_text 'add_custom_target(_vllm_fa3_C)' \
+    cmake/external_projects/patches/flash-attn-skip-fa3-without-sm90.patch
   require_text 'GIT_SHALLOW TRUE' \
     cmake/external_projects/triton_kernels.cmake
   require_text 'VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT' vllm/envs.py
