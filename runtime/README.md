@@ -29,8 +29,8 @@ Current runtime inputs:
 - ARM64/GB10 build with `TORCH_CUDA_ARCH_LIST=12.1a`;
 - explicit `MAX_JOBS=16`/`NVCC_THREADS=8` build inputs, yielding two concurrent
   CUDA translation units instead of upstream Dockerfile's serialized default;
-- native `fp8_ds_mla`, DSpark, DeepSeek V4 SM121 sparse MLA, and
-  `flashinfer_b12x`;
+- native `fp8_ds_mla`, DSpark, DeepSeek V4 SM121 sparse MLA, and the
+  `deep_gemm` MXFP4 MoE path selected by the v0.27.1-line canary;
 - CUDA-only FlashAttention source retrieval limited to its required CUTLASS
   submodule, excluding recursive ROCm AITER and Composable Kernel downloads;
 - the Hopper-only FlashAttention-3 target omitted when an SM121 build has no

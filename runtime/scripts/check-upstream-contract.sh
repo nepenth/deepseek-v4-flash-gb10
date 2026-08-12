@@ -47,6 +47,8 @@ require_text 'class FlashInferMLASparseSM120Impl' \
   vllm/v1/attention/backends/mla/flashinfer_mla_sparse_sm120.py
 require_text 'requires the packed fp8_ds_mla' \
   vllm/v1/attention/backends/mla/flashinfer_mla_sparse_sm120.py
+require_text '"deep_gemm": [Mxfp4MoeBackend.DEEPGEMM_MXFP4]' \
+  vllm/model_executor/layers/fused_moe/oracle/mxfp4.py
 require_text '"flashinfer_b12x": NvFp4MoeBackend.FLASHINFER_B12X' \
   vllm/model_executor/layers/fused_moe/oracle/nvfp4.py
 require_text 'class DSparkSpeculator' \

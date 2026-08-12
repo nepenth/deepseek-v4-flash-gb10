@@ -85,6 +85,7 @@ class RuntimeContractTests(unittest.TestCase):
         profile = (ROOT / "cluster/profiles/deepseek-v4-flash-0731-v0271-canary.conf").read_text()
         example = (ROOT / "cluster/environments/deepseek-v4-flash-0731-v0271-canary.env.example").read_text()
         compose = (ROOT / "docker-compose.dspark.yml").read_text()
+        start = (ROOT / "start-deepseek-v4-flash-dspark.sh").read_text()
         self.assertIn("RESTART_POLICY=no", profile)
         self.assertIn("ROLLBACK_PROFILE=deepseek-v4-flash-0731-dspark", profile)
         self.assertIn("MAX_MODEL_LEN=393216", example)
@@ -93,7 +94,17 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("GPU_MEMORY_UTILIZATION_TEXT=0.78", example)
         self.assertIn("MTP_NUM_TOKENS=5", example)
         self.assertIn("KV_CACHE_DTYPE=fp8_ds_mla", example)
+        self.assertIn("MOE_BACKEND=deep_gemm", example)
+        self.assertIn("--moe-backend $${MOE_BACKEND:-flashinfer_b12x}", compose)
+        self.assertIn("MOE_BACKEND=\"$MOE_BACKEND\"", start)
+        self.assertIn("MOE_BACKEND='%s'", start)
         self.assertIn("DSPARK_MODEL_HOST", compose)
+
+    def test_startup_fails_when_a_rank_exits_before_readiness(self) -> None:
+        start = (ROOT / "start-deepseek-v4-flash-dspark.sh").read_text()
+        self.assertIn("rank_exited_before_ready()", start)
+        self.assertIn("ps --status exited -q vllm-dspark", start)
+        self.assertIn("A vLLM rank exited before the API became ready.", start)
 
     def test_tracked_cluster_examples_do_not_contain_private_addresses(self) -> None:
         tracked = [

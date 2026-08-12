@@ -90,7 +90,8 @@ if [ "$KV_CACHE_DTYPE" != "fp8_ds_mla" ]; then
   echo "KV_CACHE_DTYPE must be fp8_ds_mla for the v0.27.1 SM121 sparse-MLA runtime (got: $KV_CACHE_DTYPE)" >&2
   exit 2
 fi
-export KV_CACHE_DTYPE
+MOE_BACKEND="${MOE_BACKEND:-flashinfer_b12x}"
+export KV_CACHE_DTYPE MOE_BACKEND
 
 # Vision mode flag selects 0731 GPU util (and whether the VL sidecar starts).
 #   ENABLE_VL_SIDECAR=1 → vision coexist → GPU_MEMORY_UTILIZATION_VISION (default 0.80)
@@ -363,7 +364,7 @@ resolve_nccl_gid_indexes() {
 
 remote_nccl_env() {
   # Rebuild each call so GID resolve after early init is visible on the worker.
-  printf "NCCL_IB_HCA='%s' NCCL_SOCKET_IFNAME='%s' TP_SOCKET_IFNAME='%s' GLOO_SOCKET_IFNAME='%s' NCCL_IB_GID_INDEX='%s' VLLM_HOST='%s' VLLM_PORT='%s' KV_CACHE_DTYPE='%s' DSPARK_MODEL_HOST='%s' DSPARK_MODEL_CONTAINER='%s'" \
+  printf "NCCL_IB_HCA='%s' NCCL_SOCKET_IFNAME='%s' TP_SOCKET_IFNAME='%s' GLOO_SOCKET_IFNAME='%s' NCCL_IB_GID_INDEX='%s' VLLM_HOST='%s' VLLM_PORT='%s' KV_CACHE_DTYPE='%s' MOE_BACKEND='%s' DSPARK_MODEL_HOST='%s' DSPARK_MODEL_CONTAINER='%s'" \
     "$WORKER_NCCL_IB_HCA" \
     "$WORKER_NCCL_SOCKET_IFNAME" \
     "$WORKER_TP_SOCKET_IFNAME" \
@@ -372,6 +373,7 @@ remote_nccl_env() {
     "$VLLM_HOST" \
     "$VLLM_PORT" \
     "$KV_CACHE_DTYPE" \
+    "$MOE_BACKEND" \
     "$WORKER_DSPARK_MODEL_HOST" \
     "$DSPARK_MODEL_CONTAINER"
 }
@@ -387,6 +389,7 @@ compose_base() {
     VLLM_HOST="$VLLM_HOST" \
     VLLM_PORT="$VLLM_PORT" \
     KV_CACHE_DTYPE="$KV_CACHE_DTYPE" \
+    MOE_BACKEND="$MOE_BACKEND" \
     VLLM_HOST_IP="$VLLM_HOST_IP" \
     GPU_MEMORY_UTILIZATION="$GPU_MEMORY_UTILIZATION" \
     DSPARK_MODEL="$DSPARK_MODEL" \
@@ -427,6 +430,13 @@ wait_with_startup_logs() {
 print_initial_startup_logs() {
   compose_base 0 "" logs --tail=100 vllm-dspark || true
   remote_compose "docker compose -p '$PROJECT_NAME' --env-file .env.dspark -f docker-compose.dspark.yml logs --tail=100 vllm-dspark" || true
+}
+
+rank_exited_before_ready() {
+  local head_exited worker_exited
+  head_exited="$(compose_base 0 "" ps --status exited -q vllm-dspark 2>/dev/null || true)"
+  worker_exited="$(remote_compose "docker compose -p '$PROJECT_NAME' --env-file .env.dspark -f docker-compose.dspark.yml ps --status exited -q vllm-dspark" 2>/dev/null || true)"
+  [[ -n "$head_exited" || -n "$worker_exited" ]]
 }
 
 print_failure_logs() {
@@ -664,6 +674,11 @@ for _ in $(seq 1 "$WAIT_ATTEMPTS"); do
       -d '{"model":"'"${SERVED_MODEL_NAME:-deepseek-v4-flash-dspark}"'","messages":[{"role":"user","content":"Reply with OK."}],"temperature":0.0}' >/dev/null
     echo "Minimal chat request succeeded."
     exit 0
+  fi
+  if rank_exited_before_ready; then
+    echo "A vLLM rank exited before the API became ready." >&2
+    print_failure_logs
+    exit 1
   fi
   wait_with_startup_logs
 done

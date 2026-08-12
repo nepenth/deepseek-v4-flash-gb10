@@ -74,8 +74,12 @@ runtime/scripts/prepare-source.sh
 
 The default target is the pinned
 `deepseek-ai/DeepSeek-V4-Flash-0731` checkpoint, TP=2 over two GB10 nodes,
-DSpark with five speculative tokens, `flashinfer_b12x` MoE, and
+DSpark with five speculative tokens, `deep_gemm` MXFP4 MoE, and
 `fp8_ds_mla` KV.
+
+`flashinfer_b12x` is retained for the older production image, but the pinned
+vLLM source line rejects it for DeepSeek V4 MXFP4 experts. The canary must set
+`MOE_BACKEND=deep_gemm`; the image builds the matching SM120 DeepGEMM path.
 
 The patch series adds `VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT`:
 
@@ -83,9 +87,8 @@ The patch series adds `VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT`:
 - `1`: upstream PR #42359 semantics, gated to EAGLE-marked groups;
 - `0`: disable for controlled diagnosis only.
 
-The current image and patch series still require two-node DGX Spark hardware
-validation before publication. In particular, the exact DeepGEMM child pin
-and combined 23-patch stack have not been built on GB10 in this workspace.
+The image has been built once on GB10, but the complete two-node qualification
+suite remains required before publication.
 The source and static contracts do not replace
 the long-context, acceptance, and throughput gates in
 `docs/NVFP4_DS_MLA.md`.

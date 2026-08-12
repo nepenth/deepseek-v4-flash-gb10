@@ -23,12 +23,16 @@ vLLM 0.27.1 already contains the components that the older overlay supplied:
 - DeepSeek V4 CUDA model and sparse-MLA integration;
 - the SM120/SM121 FlashInfer sparse-MLA backend;
 - DSpark model-runner-v2 speculative decoding;
-- `flashinfer_b12x` NVFP4 MoE weight execution;
+- DeepGEMM MXFP4 MoE weight execution for the v0.27.1-line candidate;
 - ARM64 and SM121 source-build support.
 
 NVFP4 MoE **weights** and NVFP4 MLA **KV cache** are separate features. This
 runtime uses native NVFP4 weight kernels where vLLM selects them, while the KV
 cache remains the supported FP8 DS-MLA layout.
+
+The older production image uses the B12X MoE backend. Its backend name is not
+accepted by the pinned vLLM MXFP4 oracle, which selects `deep_gemm` for this
+candidate instead.
 
 ## Packed NVFP4 references, not a DeepSeek V4 implementation
 
