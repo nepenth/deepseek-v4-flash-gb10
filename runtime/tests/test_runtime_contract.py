@@ -101,6 +101,9 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("--moe-backend $${MOE_BACKEND:-flashinfer_b12x}", compose)
         self.assertIn("MOE_BACKEND=\"$MOE_BACKEND\"", start)
         self.assertIn("MOE_BACKEND='%s'", start)
+        self.assertIn("VLLM_SWITCH_IMAGE=$DOCKER_IMAGE", profile)
+        self.assertIn('DSPARK_VLLM_IMAGE="$VLLM_SWITCH_IMAGE"', start)
+        self.assertIn("DSPARK_VLLM_IMAGE=\"$DSPARK_VLLM_IMAGE\"", start)
         self.assertIn("DSPARK_MODEL_HOST", compose)
 
     def test_sm120_sparse_mla_small_decode_patch_is_included(self) -> None:

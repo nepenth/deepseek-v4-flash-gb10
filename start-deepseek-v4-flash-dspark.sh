@@ -78,6 +78,13 @@ set -a
 source "$ENV_FILE"
 set +a
 
+# `vllm-switch` validates its profile image before activation. Preserve that
+# selection across the sourced Compose environment so a stale private
+# DSPARK_VLLM_IMAGE cannot launch a different candidate than was validated.
+if [ -n "${VLLM_SWITCH_IMAGE:-}" ]; then
+  DSPARK_VLLM_IMAGE="$VLLM_SWITCH_IMAGE"
+fi
+
 # The v0.25 image used nvfp4_ds_mla as a compatibility name for its FP8
 # DS-MLA record. vLLM 0.27.1 calls that path fp8_ds_mla. Generic "nvfp4" is a
 # different cache mode and is not supported by the SM121 sparse-MLA backend.
@@ -364,7 +371,7 @@ resolve_nccl_gid_indexes() {
 
 remote_nccl_env() {
   # Rebuild each call so GID resolve after early init is visible on the worker.
-  printf "NCCL_IB_HCA='%s' NCCL_SOCKET_IFNAME='%s' TP_SOCKET_IFNAME='%s' GLOO_SOCKET_IFNAME='%s' NCCL_IB_GID_INDEX='%s' VLLM_HOST='%s' VLLM_PORT='%s' KV_CACHE_DTYPE='%s' MOE_BACKEND='%s' DSPARK_MODEL_HOST='%s' DSPARK_MODEL_CONTAINER='%s'" \
+  printf "NCCL_IB_HCA='%s' NCCL_SOCKET_IFNAME='%s' TP_SOCKET_IFNAME='%s' GLOO_SOCKET_IFNAME='%s' NCCL_IB_GID_INDEX='%s' VLLM_HOST='%s' VLLM_PORT='%s' KV_CACHE_DTYPE='%s' MOE_BACKEND='%s' DSPARK_VLLM_IMAGE='%s' DSPARK_MODEL_HOST='%s' DSPARK_MODEL_CONTAINER='%s'" \
     "$WORKER_NCCL_IB_HCA" \
     "$WORKER_NCCL_SOCKET_IFNAME" \
     "$WORKER_TP_SOCKET_IFNAME" \
@@ -374,6 +381,7 @@ remote_nccl_env() {
     "$VLLM_PORT" \
     "$KV_CACHE_DTYPE" \
     "$MOE_BACKEND" \
+    "$DSPARK_VLLM_IMAGE" \
     "$WORKER_DSPARK_MODEL_HOST" \
     "$DSPARK_MODEL_CONTAINER"
 }
@@ -390,6 +398,7 @@ compose_base() {
     VLLM_PORT="$VLLM_PORT" \
     KV_CACHE_DTYPE="$KV_CACHE_DTYPE" \
     MOE_BACKEND="$MOE_BACKEND" \
+    DSPARK_VLLM_IMAGE="$DSPARK_VLLM_IMAGE" \
     VLLM_HOST_IP="$VLLM_HOST_IP" \
     GPU_MEMORY_UTILIZATION="$GPU_MEMORY_UTILIZATION" \
     DSPARK_MODEL="$DSPARK_MODEL" \
