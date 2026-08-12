@@ -40,6 +40,9 @@ services:
       # checkpoint revision. Set DSPARK_REVISION= explicitly to follow refs/main.
       DSPARK_REVISION: "${DSPARK_REVISION:-9e165c30e2704aec5d9d593cce3eebd58bbef1cb}"
       VLLM_CACHE_ROOT: /cache/huggingface/vllm-cache
+      # A profile may isolate this cache for cold-start JIT qualification.
+      # The default persists across restarts like the other model artifacts.
+      TRITON_CACHE_DIR: "${TRITON_CACHE_DIR:-/cache/huggingface/triton-cache}"
       VLLM_HOST_IP: "${VLLM_HOST_IP:-}"
 
       VLLM_ALLOW_LONG_MAX_MODEL_LEN: "${VLLM_ALLOW_LONG_MAX_MODEL_LEN:-1}"

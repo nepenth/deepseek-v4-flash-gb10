@@ -52,7 +52,7 @@ class RuntimeContractTests(unittest.TestCase):
             for line in (RUNTIME / "patches/vllm/series").read_text().splitlines()
             if line.strip() and not line.startswith("#")
         ]
-        self.assertEqual(len(entries), 27)
+        self.assertEqual(len(entries), 28)
         self.assertEqual(len(entries), len(set(entries)))
         for number, entry in enumerate(entries, 1):
             self.assertTrue(entry.startswith(f"{number:04d}-"), entry)
@@ -122,17 +122,33 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("VLLM_SWITCH_IMAGE=$DOCKER_IMAGE", profile)
         self.assertIn("VLLM_SWITCH_KV_BLOCK_SIZE=256", profile)
         self.assertIn("VLLM_SWITCH_FLASHINFER_WORKSPACE_BASE", profile)
+        self.assertIn("VLLM_SWITCH_TRITON_CACHE_DIR", profile)
         self.assertIn('DSPARK_VLLM_IMAGE="$VLLM_SWITCH_IMAGE"', start)
         self.assertIn('KV_BLOCK_SIZE="$VLLM_SWITCH_KV_BLOCK_SIZE"', start)
         self.assertIn(
             'FLASHINFER_WORKSPACE_BASE="$VLLM_SWITCH_FLASHINFER_WORKSPACE_BASE"',
             start,
         )
+        self.assertIn(
+            'TRITON_CACHE_DIR="$VLLM_SWITCH_TRITON_CACHE_DIR"',
+            start,
+        )
         self.assertIn("requires KV_BLOCK_SIZE=256", start)
         self.assertIn("KV_BLOCK_SIZE=\"$KV_BLOCK_SIZE\"", start)
         self.assertIn("DSPARK_VLLM_IMAGE=\"$DSPARK_VLLM_IMAGE\"", start)
         self.assertIn("FLASHINFER_WORKSPACE_BASE", example)
+        self.assertIn("TRITON_CACHE_DIR", example)
+        self.assertIn('TRITON_CACHE_DIR: "${TRITON_CACHE_DIR:-', compose)
         self.assertIn("DSPARK_MODEL_HOST", compose)
+
+    def test_deepgemm_router_counter_warmup_patch_is_included(self) -> None:
+        patch = (
+            RUNTIME / "patches/vllm/0028-warm-deepgemm-router-token-counter.patch"
+        ).read_text()
+        self.assertIn("_warmup_fused_moe_token_counter", patch)
+        self.assertIn("DeepGemmFP4Experts", patch)
+        self.assertIn("_FUSED_MOE_TOKEN_COUNTER_BLOCK_SIZES", patch)
+        self.assertIn("(1, 2, 3, 6, 11, 22, 43, 86)", patch)
 
     def test_sm120_sparse_mla_small_decode_patch_is_included(self) -> None:
         patch = (

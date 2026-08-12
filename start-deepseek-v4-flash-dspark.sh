@@ -87,6 +87,9 @@ fi
 if [ -n "${VLLM_SWITCH_FLASHINFER_WORKSPACE_BASE:-}" ]; then
   FLASHINFER_WORKSPACE_BASE="$VLLM_SWITCH_FLASHINFER_WORKSPACE_BASE"
 fi
+if [ -n "${VLLM_SWITCH_TRITON_CACHE_DIR:-}" ]; then
+  TRITON_CACHE_DIR="$VLLM_SWITCH_TRITON_CACHE_DIR"
+fi
 
 # The v0.25 image used nvfp4_ds_mla as a compatibility name for its FP8
 # DS-MLA record. vLLM 0.27.1 calls that path fp8_ds_mla. Generic "nvfp4" is a
@@ -121,7 +124,8 @@ if [ -n "${VLLM_SWITCH_KV_BLOCK_SIZE:-}" ] && [ "$KV_BLOCK_SIZE" != "256" ]; the
 fi
 MOE_BACKEND="${MOE_BACKEND:-flashinfer_b12x}"
 FLASHINFER_WORKSPACE_BASE="${FLASHINFER_WORKSPACE_BASE:-/cache/huggingface/flashinfer}"
-export KV_CACHE_DTYPE KV_BLOCK_SIZE MOE_BACKEND FLASHINFER_WORKSPACE_BASE
+TRITON_CACHE_DIR="${TRITON_CACHE_DIR:-/cache/huggingface/triton-cache}"
+export KV_CACHE_DTYPE KV_BLOCK_SIZE MOE_BACKEND FLASHINFER_WORKSPACE_BASE TRITON_CACHE_DIR
 
 # Vision mode flag selects 0731 GPU util (and whether the VL sidecar starts).
 #   ENABLE_VL_SIDECAR=1 → vision coexist → GPU_MEMORY_UTILIZATION_VISION (default 0.80)
@@ -394,7 +398,7 @@ resolve_nccl_gid_indexes() {
 
 remote_nccl_env() {
   # Rebuild each call so GID resolve after early init is visible on the worker.
-  printf "NCCL_IB_HCA='%s' NCCL_SOCKET_IFNAME='%s' TP_SOCKET_IFNAME='%s' GLOO_SOCKET_IFNAME='%s' NCCL_IB_GID_INDEX='%s' VLLM_HOST='%s' VLLM_PORT='%s' KV_CACHE_DTYPE='%s' KV_BLOCK_SIZE='%s' MOE_BACKEND='%s' FLASHINFER_WORKSPACE_BASE='%s' DSPARK_VLLM_IMAGE='%s' DSPARK_MODEL_HOST='%s' DSPARK_MODEL_CONTAINER='%s'" \
+  printf "NCCL_IB_HCA='%s' NCCL_SOCKET_IFNAME='%s' TP_SOCKET_IFNAME='%s' GLOO_SOCKET_IFNAME='%s' NCCL_IB_GID_INDEX='%s' VLLM_HOST='%s' VLLM_PORT='%s' KV_CACHE_DTYPE='%s' KV_BLOCK_SIZE='%s' MOE_BACKEND='%s' FLASHINFER_WORKSPACE_BASE='%s' TRITON_CACHE_DIR='%s' DSPARK_VLLM_IMAGE='%s' DSPARK_MODEL_HOST='%s' DSPARK_MODEL_CONTAINER='%s'" \
     "$WORKER_NCCL_IB_HCA" \
     "$WORKER_NCCL_SOCKET_IFNAME" \
     "$WORKER_TP_SOCKET_IFNAME" \
@@ -406,6 +410,7 @@ remote_nccl_env() {
     "$KV_BLOCK_SIZE" \
     "$MOE_BACKEND" \
     "$FLASHINFER_WORKSPACE_BASE" \
+    "$TRITON_CACHE_DIR" \
     "$DSPARK_VLLM_IMAGE" \
     "$WORKER_DSPARK_MODEL_HOST" \
     "$DSPARK_MODEL_CONTAINER"
@@ -425,6 +430,7 @@ compose_base() {
     KV_BLOCK_SIZE="$KV_BLOCK_SIZE" \
     MOE_BACKEND="$MOE_BACKEND" \
     FLASHINFER_WORKSPACE_BASE="$FLASHINFER_WORKSPACE_BASE" \
+    TRITON_CACHE_DIR="$TRITON_CACHE_DIR" \
     DSPARK_VLLM_IMAGE="$DSPARK_VLLM_IMAGE" \
     VLLM_HOST_IP="$VLLM_HOST_IP" \
     GPU_MEMORY_UTILIZATION="$GPU_MEMORY_UTILIZATION" \
@@ -515,6 +521,7 @@ print_resolved_profile() {
   echo "  KV cache dtype: $KV_CACHE_DTYPE"
   echo "  KV page size: $KV_BLOCK_SIZE"
   echo "  FlashInfer workspace: $FLASHINFER_WORKSPACE_BASE"
+  echo "  Triton cache: $TRITON_CACHE_DIR"
   echo "  default thinking: $DEFAULT_THINKING (off/low/high/max)"
   echo "  cudagraph capture size: $(( ${MAX_NUM_SEQS:-6} * (${MTP_NUM_TOKENS:-5} + 1) ))"
   echo "  API bind: $VLLM_HOST:$VLLM_PORT"

@@ -1,0 +1,151 @@
+From 6e448d0ea9bf3d88d898b65449ca6dc2aec170ac Mon Sep 17 00:00:00 2001
+From: Chris <16943149+nepenth@users.noreply.github.com>
+Date: Wed, 12 Aug 2026 10:20:00 -0400
+Subject: [PATCH 28/28] Warm DeepGEMM routed-expert token counters
+
+DeepSeek V4 Flash uses a top-k-6 router. Its DeepGEMM modular MoE path
+invokes the Triton `count_expert_num_tokens` utility, which is specialized by
+the flattened router-ID block size and whether tensor-parallel expert mapping
+is active. Kernel warmup covered the router GEMM but not that utility, so a
+first inference shape could still JIT under traffic.
+
+Inspect the loaded RoutedExperts modules and only target active DeepGEMM
+implementations. For each unique local expert/top-k/map configuration, call
+the counter on one shape for every reachable power-of-two block size through
+1024. This avoids model dummy forwards and uses the real expert map supplied
+to serving. Add a pure unit test for the deployed top-k-6 ladder.
+---
+ .../test_fused_moe_warmup.py                      | 24 +++++++
+ vllm/model_executor/warmup/kernel_warmup.py       | 79 ++++++++++++++++++++-
+ 2 files changed, 102 insertions(+), 1 deletion(-)
+ create mode 100644 tests/model_executor/test_fused_moe_warmup.py
+
+diff --git a/tests/model_executor/test_fused_moe_warmup.py b/tests/model_executor/test_fused_moe_warmup.py
+new file mode 100644
+index 000000000..14ce8e647
+--- /dev/null
++++ b/tests/model_executor/test_fused_moe_warmup.py
+@@ -0,0 +1,24 @@
++# SPDX-License-Identifier: Apache-2.0
++from vllm.model_executor.warmup.kernel_warmup import (
++    _FUSED_MOE_TOKEN_COUNTER_BLOCK_SIZES,
++    _fused_moe_token_counter_token_counts,
++)
++
++
++def _counter_block_size(numel: int) -> int:
++    block_size = min(numel, 1024)
++    return 1 << (block_size - 1).bit_length()
++
++
++def test_fused_moe_token_counter_warmup_covers_deepseek_v4_topk() -> None:
++    top_k = 6
++    token_counts = _fused_moe_token_counter_token_counts(top_k)
++
++    assert token_counts == (1, 2, 3, 6, 11, 22, 43, 86)
++    assert {_counter_block_size(num_tokens * top_k) for num_tokens in token_counts} == set(
++        _FUSED_MOE_TOKEN_COUNTER_BLOCK_SIZES
++    )
++
++
++def test_fused_moe_token_counter_warmup_rejects_invalid_topk() -> None:
++    assert _fused_moe_token_counter_token_counts(0) == ()
+diff --git a/vllm/model_executor/warmup/kernel_warmup.py b/vllm/model_executor/warmup/kernel_warmup.py
+index fdcc43be6..bb6c9f8e5 100644
+--- a/vllm/model_executor/warmup/kernel_warmup.py
++++ b/vllm/model_executor/warmup/kernel_warmup.py
+@@ -49,6 +49,83 @@
+ logger = init_logger(__name__)
+ 
+ _LL_BF16_WARMUP_M_RANGE = range(1, 17)
++_FUSED_MOE_TOKEN_COUNTER_BLOCK_SIZES = (8, 16, 32, 64, 128, 256, 512, 1024)
++
++
++def _fused_moe_token_counter_token_counts(top_k: int) -> tuple[int, ...]:
++    """Return one token count for every reachable counter block size.
++
++    ``count_expert_num_tokens`` compiles on the power-of-two block size of
++    the flattened [tokens, top_k] router IDs, capped at 1024. A token count
++    just above each lower block boundary covers the full set of possible
++    specializations without issuing a full dummy model forward for each one.
++    """
++    if top_k < 1:
++        return ()
++
++    token_counts = []
++    for block_size in _FUSED_MOE_TOKEN_COUNTER_BLOCK_SIZES:
++        min_numel = block_size // 2 + 1
++        num_tokens = max(1, (min_numel + top_k - 1) // top_k)
++        topk_numel = num_tokens * top_k
++        if topk_numel <= block_size:
++            token_counts.append(num_tokens)
++    return tuple(token_counts)
++
++
++def _warmup_fused_moe_token_counter(model: torch.nn.Module) -> None:
++    """Compile DeepGEMM's router token counter before enabling JIT monitor."""
++    from vllm.model_executor.layers.fused_moe.experts.deep_gemm_moe import (
++        DeepGemmExperts,
++        DeepGemmFP4Experts,
++    )
++    from vllm.model_executor.layers.fused_moe.routed_experts import RoutedExperts
++    from vllm.model_executor.layers.fused_moe.utils import count_expert_num_tokens
++
++    counter_configs = {}
++    for module in model.modules():
++        if not isinstance(module, RoutedExperts):
++            continue
++        moe_kernel = getattr(module.quant_method, "moe_kernel", None)
++        fused_experts = getattr(moe_kernel, "fused_experts", None)
++        if not isinstance(fused_experts, (DeepGemmExperts, DeepGemmFP4Experts)):
++            continue
++
++        expert_map = module.expert_map
++        device = (
++            expert_map.device
++            if expert_map is not None
++            else module.w13_weight.device
++        )
++        key = (
++            module.local_num_experts,
++            module.moe_config.experts_per_token,
++            device,
++            expert_map is not None,
++        )
++        counter_configs.setdefault(key, (module, expert_map, device))
++
++    if not counter_configs:
++        return
++
++    warmed_configs = []
++    for key, (module, expert_map, device) in counter_configs.items():
++        num_local_experts, top_k, _, has_expert_map = key
++        token_counts = _fused_moe_token_counter_token_counts(top_k)
++        for num_tokens in token_counts:
++            topk_ids = torch.zeros(
++                (num_tokens, top_k), device=device, dtype=torch.int32
++            )
++            count_expert_num_tokens(topk_ids, num_local_experts, expert_map)
++        warmed_configs.append(
++            (top_k, num_local_experts, has_expert_map, token_counts)
++        )
++
++    torch.accelerator.synchronize()
++    logger.info_once(
++        "Warmed DeepGEMM routed-expert token counter configurations: %s.",
++        warmed_configs,
++    )
+ 
+ 
+ def _ll_bf16_router_shapes_from_model(
+@@ -131,7 +208,9 @@ def kernel_warmup(worker: "Worker", *, process_local_only: bool = False):
+         sparse_mla_triton_warmup(worker)
+ 
+     if current_platform.has_device_capability(90):
+-        _warmup_ll_bf16_router_gemm(worker.get_model())
++        model = worker.get_model()
++        _warmup_ll_bf16_router_gemm(model)
++        _warmup_fused_moe_token_counter(model)
+ 
+     if worker.vllm_config.kernel_config.enable_cutedsl_warmup:
+         # TODO(roberto): Remove after registered CuTeDSL warmups are migrated
