@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 [[ -f "$ROOT/cluster/environments/vllm-switch.env" ]] && source "$ROOT/cluster/environments/vllm-switch.env"
 WORKER_SSH="${WORKER_SSH:-${VLLM_SWITCH_WORKER_SSH:-}}"
 [[ -n "$WORKER_SSH" ]] || { echo "WORKER_SSH is required." >&2; exit 1; }
-IMAGE="${1:-dspark-vllm-gb10:v0.27.1-gb10-rc4}"
+IMAGE="${1:-dspark-vllm-gb10:v0.27.1-gb10-rc5}"
 MODEL_PATH="${MODEL_PATH:-/opt/models/deepseek-ai--DeepSeek-V4-Flash-0731}"
 
 node_report() {
