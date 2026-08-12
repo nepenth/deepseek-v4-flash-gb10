@@ -1,0 +1,30 @@
+From 4e117eb2a3a9d11b1bbd5f7b6e93a538c7d4d23f Mon Sep 17 00:00:00 2001
+From: Chris <16943149+nepenth@users.noreply.github.com>
+Date: Tue, 11 Aug 2026 20:16:00 -0400
+Subject: [PATCH 26/26] [Build] Shallow-clone the pinned Triton kernels source
+
+vLLM installs only the `python/triton_kernels` Python package, yet its
+FetchContent declaration clones the complete Triton history. The pinned tag is
+immutable and the build neither inspects history nor initializes submodules.
+
+Use CMake's supported GIT_SHALLOW mode to limit the checkout to the pinned
+release snapshot. This preserves the exact source revision while avoiding a
+large, repeated ARM64 network transfer during image builds.
+---
+ cmake/external_projects/triton_kernels.cmake | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/cmake/external_projects/triton_kernels.cmake b/cmake/external_projects/triton_kernels.cmake
+index 78726359d..d5d7d44ae 100644
+--- a/cmake/external_projects/triton_kernels.cmake
++++ b/cmake/external_projects/triton_kernels.cmake
+@@ -23,6 +23,7 @@ else()
+           # TODO (varun) : Fetch just the triton_kernels directory from Triton
+           GIT_REPOSITORY ${TRITON_GIT}
+           GIT_TAG ${TRITON_KERNELS_TAG}
++          GIT_SHALLOW TRUE
+           GIT_PROGRESS TRUE
+           SOURCE_SUBDIR python/triton_kernels/triton_kernels
+   )
+-- 
+2.43.0

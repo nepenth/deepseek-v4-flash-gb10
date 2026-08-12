@@ -35,6 +35,8 @@ Current runtime inputs:
   submodule, excluding recursive ROCm AITER and Composable Kernel downloads;
 - the Hopper-only FlashAttention-3 target omitted when an SM121 build has no
   matching FA3 architecture;
+- shallow retrieval of the pinned Triton source used solely for its installed
+  `triton_kernels` Python package;
 - no post-build dependency downgrade and no installed-package file overlay.
 
 The old `nvfp4_ds_mla` spelling was an FP8 compatibility alias, not a true
