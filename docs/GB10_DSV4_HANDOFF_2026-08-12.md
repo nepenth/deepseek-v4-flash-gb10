@@ -37,6 +37,15 @@ operation logs are intentionally excluded from Git. They are stored in
 ignored `.private/` records on the cluster. Do not force-add them. This file
 contains the reproducible public contract and sanitized measured results.
 
+## Visual Evidence
+
+The project README presents the current architecture, qualification sequence,
+and long-context A/B results as repository-local SVGs. The asset registry in
+[assets/README.md](assets/README.md) ties each graphic to its source table or
+runtime contract. The performance graphic is a concise view of the long-matrix
+results recorded in [Long matrix](#long-matrix); it is not a substitute for the
+full raw comparison protocol.
+
 ## Important Boundaries
 
 1. This is **not** a real packed NVFP4 DeepSeek V4 MLA KV cache. The

@@ -1,83 +1,105 @@
-# Setup — A/B replicas, models, and step-by-step reproduction
+# Setup: Two-Node GB10 Runtime
 
-## Hardware / fabric
+This guide describes the current standalone runtime. It deliberately does not
+embed node names, addresses, fabric names, checkpoint paths, or credentials.
+Keep those values in the ignored deployed environment file and private
+operation records.
 
-- 4× NVIDIA DGX Spark (GB10, SM121, 128 GB unified each), 200 Gb RoCE fabric.
-- Two independent **TP=2** replicas (one GPU per node, 2 nodes per replica).
-- Fabric interface `enp1s0f1np1`, HCA `rocep1s0f1`, `NCCL_IB_GID_INDEX=3`.
+## Prerequisites
 
-## Model (same weights for both replicas)
+- Two NVIDIA DGX Spark GB10 nodes with SM121-capable CUDA toolchain.
+- A working tensor-parallel network path between both nodes.
+- The same local DeepSeek V4 Flash 0731 checkpoint available on both nodes.
+- Docker and Compose available on both nodes.
+- Passwordless operator access appropriate for the local deployment policy.
+- Sufficient free Docker-build storage; preserve validated build layers unless
+  storage policy requires a documented cleanup.
 
-| | |
-|---|---|
-| Model | `deepseek-ai/DeepSeek-V4-Flash-DSpark` (MLA + sparse indexer, FP8 weights, DSpark γ=5 / rank-256 Markov head) |
-| KV cache | `fp8` |
-| Speculative | `{"method":"dspark","num_speculative_tokens":5}` |
-| Context | `max-model-len 262144` (recipe also supports up to ~900K single-stream) |
+## Source Contract
 
-> Both replicas serve the **same** DeepSeek-V4-Flash-DSpark weights. They differ
-> only in **packaging/launch recipe** (and, for B, the concurrency patch). There is
-> no separate "rafael model" vs "tonyd2wild model" — same checkpoint, two recipes.
+The source pin and build inputs are in [`../runtime/upstream.lock`](../runtime/upstream.lock).
+Do not replace them with floating tags. Validate the source and ordered patch
+series before a hardware build:
 
-## Runtime image (both)
+```bash
+runtime/scripts/prepare-source.sh
+```
 
-`vllm-dspark-runtime:clean` — a **thin overlay** (`COPY` the DSpark vLLM source files
-+ `py_compile`) on the prebuilt base `ghcr.io/bjk110/vllm-spark:unholy-fusion-prod-ready`
-(mirror of `aidendle94/sparkrun-vllm-ds4-gb10:production-ready`, the "unholy-fusion"
-build carrying the B12X MoE kernels for GB10). The DSpark overlay source is Rafael
-Caricio's integration; the TonyD2Wild repo vendors those same files.
+The supported target is vLLM 0.27.1 on GB10 with DeepGEMM MXFP4 experts and
+`fp8_ds_mla` cache. Read [RUNTIME_V0271_GB10.md](RUNTIME_V0271_GB10.md) and
+[NVFP4_DS_MLA.md](NVFP4_DS_MLA.md) before changing the cache dtype.
 
-## Replica A — Rafael Caricio stack (control, unpatched)
+## Environment and Profiles
 
-| | |
-|---|---|
-| Repo | `rafaelcaricio/spark_vllm_docker` + `rafaelcaricio/vllm` (fork `codex/dspark-harness-integration`) |
-| Nodes | head `10.100.10.4:8000`, worker `10.100.10.1` |
-| Launch | compose + `unholy` entrypoint + a wrapper that rewrites `method:mtp → dspark` at start |
-| `max-num-seqs` | 1 (control) |
-| Single-stream | ~52–54 tok/s |
+Copy the tracked candidate environment example to its untracked deployed
+counterpart and fill local values outside Git:
 
-## Replica B — TonyD2Wild packaged recipe (frontier sandbox, **patched**)
+```bash
+cp cluster/environments/deepseek-v4-flash-0731-v0271-canary.env.example \
+   cluster/environments/deepseek-v4-flash-0731-v0271-canary.env
+```
 
-| | |
-|---|---|
-| Repo | `tonyd2wild/DeepSeek-v4-Flash-DSpark-60-tok-s-900K-ctx-2x-DGX-Spark` (vendors Rafael's overlay; MiaAI-Lab worker-first launch) |
-| Nodes | head `10.100.10.2:8888`, worker `10.100.10.3` |
-| Launch | self-contained compose, direct `vllm serve ... method:dspark`, worker-first start script |
-| `max-num-seqs` | swept 1 → 16 (with this patch) |
-| Single-stream | ~52 tok/s |
+The final controlled candidate envelope is:
 
----
+| Setting | Value |
+|---|---:|
+| Context | 1,048,576 |
+| Max sequences | 6 |
+| Max batched tokens | 8,192 |
+| GPU memory utilization | 0.84 |
+| DSpark speculative tokens | 5 |
+| KV cache dtype | `fp8_ds_mla` |
+| Global / SWA block size | 256 / 64 |
 
-## Step-by-step (applies to anyone's DSpark + DeepSeek-V4 setup)
+The matching legacy baseline profile is
+`deepseek-v4-flash-0731-dspark-1m-baseline`. Use it immediately before a
+candidate A/B switch so automatic rollback has a configuration-equivalent
+target.
 
-1. **Stand up a working DSpark replica** using either recipe above (build
-   `vllm-dspark-runtime:clean`, copy the model, configure `.env`, launch
-   worker-first). Confirm single-stream works at `max-num-seqs=1`.
+## Stage, Install, Validate, Activate
 
-2. **Apply the patch** to your overlay checkout (the dir containing `vllm/`):
-   ```bash
-   git apply -p1 patches/keys-concurrency.patch
-   ```
+Each operation is intentionally separated:
 
-3. **Rebuild the runtime image on every node** (the overlay is baked at build time):
-   ```bash
-   ./build-dspark-vllm-runtime.sh      # builds head + worker
-   ```
+```bash
+# Copy repository files to both ranks; does not change service state.
+./cluster/deploy-to-sparks.sh --apply
 
-4. **Configure for concurrency** in your `.env`:
-   ```
-   MAX_NUM_SEQS=16
-   VLLM_DSPARK_GPU_REJECTED_CONTEXT_MASK=1   # required for the ragged path
-   ```
+# Install new profiles/control plane; does not restart the live service.
+./cluster/install-control-plane.sh --install
 
-5. **Restart worker-first**, wait for `/v1/models` → 200 (~5 min: load + cudagraph).
+# Validate model mounts, image parity, and requirements on both ranks.
+vllm-switch validate deepseek-v4-flash-0731-v0271-canary
 
-6. **Verify** with the included smoke test (or any OpenAI-compatible client):
-   ```bash
-   ./smoke-deepseek-v4-flash-dspark.sh
-   curl -fsS http://<head>:<port>/v1/models
-   ```
+# Inspect current service/API state.
+vllm-switch status
+```
 
-7. **Scale out (optional):** run a second patched TP=2 replica and put a
-   least-connections router in front for ~2× aggregate / concurrency.
+Only activate or roll back in an approved maintenance window:
+
+```bash
+vllm-switch deepseek-v4-flash-0731-v0271-canary
+vllm-switch rollback
+```
+
+See [CLUSTER_CONTROL_PLANE.md](CLUSTER_CONTROL_PLANE.md) for lifecycle,
+rollback, and failure-capture details. Long builds or model startup must run
+detached with private logs and be polled to final readiness or rollback.
+
+## Build and Qualification
+
+Build through the guarded entrypoint:
+
+```bash
+./build-dspark-vllm-runtime.sh
+```
+
+After activation, run qualification under ignored storage:
+
+```bash
+OUTPUT_ROOT="$PWD/.private/qualification" \
+  cluster/scripts/run-qualification.sh --run \
+  --label rc-next --model deepseek-v4-flash-0731-v0271-canary --mode full
+```
+
+The final handoff contains the exact A/B protocol and current results:
+[GB10_DSV4_HANDOFF_2026-08-12.md](GB10_DSV4_HANDOFF_2026-08-12.md).

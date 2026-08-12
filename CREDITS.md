@@ -1,117 +1,59 @@
-# Credits
+# Credits and Provenance
 
-This repo combines several public efforts. Please credit the upstream authors
-when reusing the recipe, the patch, or benchmark numbers.
+This is an independent repository. It is not a GitHub fork, but it preserves
+the attribution, license notices, and source lineage of the public work it
+builds upon. Do not remove upstream license headers or represent downstream
+patches as upstream releases.
 
-## Special Thanks
+## Primary Foundations
 
-**[drowzeys ("Keys")](https://github.com/drowzeys/)** — special thanks for
-publishing the work that made real DSpark concurrency possible on DGX Spark.
-Keys' public repos and patches provided:
+| Project | Contribution to this repository |
+|---|---|
+| [vLLM](https://github.com/vllm-project/vllm) | Serving engine, DeepSeek V4 integration, patch base, and runtime APIs. |
+| [FlashInfer](https://github.com/flashinfer-ai/flashinfer) | Sparse MLA kernels and the upstream DSV4 192/256 dispatch implementation used as a narrow overlay. |
+| [DeepSeek](https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-0731) | DeepSeek V4 Flash 0731 checkpoint and DSpark model architecture. |
+| NVIDIA CUDA, NCCL, and Blackwell tooling | GB10/SM121 compute, communication, and build substrate. |
+| DeepGEMM | MXFP4 routed-expert execution used by the candidate. |
 
-- the in-server DSpark concurrency patch used in this overlay
-- request-stable DSpark main-KV slot mapping for `max_num_seqs > 1`
-- ragged `query_start_loc` handling for mixed prefill/decode batches
-- early `nvfp4_ds_mla` KV-cache recipe wiring on Spark hardware
+## DSpark and DGX Spark Lineage
 
-This repo's concurrency results, overlay proposer, and NVFP4 launch path all
-depend directly on that contribution.
+- [Rafael Caricio's DSpark vLLM work](https://github.com/rafaelcaricio/vllm/pull/1)
+  and [deployment work](https://github.com/rafaelcaricio/spark_vllm_docker/pull/1)
+  informed the original DSpark integration and deployment shape.
+- [Fraser Price's DSpark runtime work](https://github.com/fraserprice/dspark-vllm)
+  and the associated public model research informed earlier DeepSeek V4 Flash
+  serving paths.
+- [MiaAI-Lab's two-node DGX Spark recipe](https://github.com/MiaAI-Lab/DeepSeek-v4-Flash-DSpark-2x-DGX-Spark)
+  supplied the original two-node packaging, launch lineage, and historical
+  qualification references from which this repository began.
+- [Anemll's dspark-vllm-gx10](https://github.com/Anemll/dspark-vllm-gx10)
+  informed the imported GB10 runtime/build lineage.
+- [drowzeys / Keys concurrency work](https://github.com/drowzeys/Keys-Concurrency-Patch-for-DSpark-DeepSeek-V4-Flash)
+  established important DSpark concurrency findings in historical overlays.
+- [TonyD2Wild's DGX Spark recipe work](https://github.com/tonyd2wild/DeepSeek-v4-Flash-DSpark-1M-NVFP4-KV-2x-DGX-Spark)
+  informed earlier launch and long-context investigations.
 
-**[@u1tra_instinct](https://x.com/u1tra_instinct)** — special thanks for the
-optional abliterated weights path (`ABLITERATED=1`):
-https://huggingface.co/drowzeys/keys-DeepSeekV4-Flash-GA-0731-Dspark-Abliterated-32-32
+## Research References
 
-## DSpark Concurrency Patch
+The true packed-NVFP4 cache discussion references public work from
+[vLLM-Moet](https://github.com/kacper-daftcode/vLLM-Moet) and
+[b12x](https://github.com/local-inference-lab/b12x). These are research
+references only. Their code is not used as a production build input here
+because their packed 512+64 MLA layouts are not DeepSeek V4's 448+64 sparse
+MLA geometry.
 
-The in-server DSpark concurrency breakthrough comes from Keys / drowzeys:
-
-- Repo: https://github.com/drowzeys/Keys-Concurrency-Patch-for-DSpark-DeepSeek-V4-Flash
-- Tested commit in this repo: `7e4d94bbcec95223550517c0fa9244e59f9f6483`
-
-Keys' patch fixes the two core blockers for `max_num_seqs > 1`:
-
-- Request-stable DSpark main-KV slots, so persistent DSpark draft KV follows
-  request identity instead of condensed vLLM batch-row position.
-- Ragged `query_start_loc` handling for real independent-arrival batches where
-  prefill and decode rows mix in the same scheduler step.
-
-The validated concurrency numbers in this repo depend directly on that patch.
-
-## DSpark vLLM Integration
-
-Rafael Caricio published the DSpark vLLM integration and deployment work this
-recipe builds on:
-
-- https://github.com/rafaelcaricio/vllm/pull/1
-- https://github.com/rafaelcaricio/spark_vllm_docker/pull/1
-
-## Model And Runtime Work
-
-Fraser Price published the DeepSeek V4 Flash DSpark model/runtime work used by
-this recipe:
-
-- https://huggingface.co/fraserprice/DeepSeek-V4-Flash-DSpark
-- https://github.com/fraserprice/dspark-vllm
-
-## Two-Node DGX Spark Packaging
-
-MiaAI-Lab published the two-node DGX Spark packaging and launch lineage this
-repo builds from:
-
-- https://github.com/MiaAI-Lab/DeepSeek-v4-Flash-DSpark-2x-DGX-Spark
-
-## GB10 Runtime And NVFP4 Research
-
-Anemll published the two-node GB10 vLLM runtime imported with history under
-`runtime/`:
-
-- https://github.com/Anemll/dspark-vllm-gx10
-
-The true packed-NVFP4 KV research is based on public implementations from
-Kacper Daftcode's vLLM-Moet fork and the local-inference-lab b12x project. They
-are pinned as research references in `runtime/upstream.lock`; no code from
-either project is copied into the production image:
-
-- https://github.com/kacper-daftcode/vLLM-Moet
-- https://github.com/local-inference-lab/b12x
-
-The SM121 patch selection and prefix-cache correctness work also uses the
-maintained vLLM PR #41834 preview as a validation reference:
-
-- https://github.com/vllm-project/vllm/pull/41834
-- https://github.com/vllm-project/vllm/pull/42359
-
-## Upstream Foundations
-
-This work also relies on:
-
-- vLLM
-- FlashInfer
-- NVIDIA CUDA/NCCL/Blackwell tooling
-- DeepSeek V4 Flash
-- DeepSeek-AI DeepSpec / DSpark speculative decoding research
-
-## TonyD2Wild NVFP4 Recipe Lineage
-
-TonyD2Wild's public NVFP4 recipe work informed this fork's garble-fix launcher
-defaults, runtime documentation, and the non-uniform batch guard merged into the
-bind-mounted `dspark_proposer.py`.
-
-- https://github.com/tonyd2wild/DeepSeek-v4-Flash-DSpark-1M-NVFP4-KV-2x-DGX-Spark
-
-## MiaAI-Lab Contribution
-
-MiaAI-Lab maintains this fork's validated 2x DGX Spark NVFP4-KV recipe, Stage
-A/B/C runtime packaging, sanitized two-node launch flow, Keys concurrency patch
-integration, runtime proposer bind-mount, and benchmark artifacts from the
-validated runs.
+The hardware-focused patch selection also references vLLM
+[PR #41834](https://github.com/vllm-project/vllm/pull/41834),
+[PR #42359](https://github.com/vllm-project/vllm/pull/42359),
+[PR #50796](https://github.com/vllm-project/vllm/pull/50796),
+[PR #51318](https://github.com/vllm-project/vllm/pull/51318), and FlashInfer
+[PR #4380](https://github.com/flashinfer-ai/flashinfer/pull/4380).
 
 ## License Notes
 
-Repo-local scripts and docs are MIT licensed via `LICENSE`.
-
-The vLLM overlay files, `runtime/patches/vllm/`, and
-`patches/keys-concurrency.patch` are vLLM/DSpark-derived and retain their
-Apache-2.0 lineage from the upstream sources and patch authors. Model weights,
-base images, CUDA/NCCL, FlashInfer, TileLang, and Triton are separate upstream
-artifacts with their own licenses and terms.
+Repository-specific scripts and documentation are MIT-licensed under
+[`LICENSE`](LICENSE). vLLM-derived files, the vLLM patch series, and other
+upstream-derived code retain their Apache-2.0 or source-specific licensing.
+Model weights, CUDA/NCCL, FlashInfer, TileLang, Triton, and base images remain
+subject to their respective upstream licenses and terms. See the license and
+notice files in the relevant imported source trees before redistribution.

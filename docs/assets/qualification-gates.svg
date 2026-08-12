@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">GB10 candidate qualification gates</title>
+  <desc id="desc">A sequence of source, deployment, functional, stability, and performance gates ending in release candidate evidence.</desc>
+  <style>
+    .bg { fill: #f8fafc; }
+    .title { fill: #0f172a; font: 700 29px Arial, sans-serif; }
+    .box { fill: #ffffff; stroke: #94a3b8; stroke-width: 2; }
+    .good { fill: #dcfce7; stroke: #16a34a; stroke-width: 2; }
+    .text { fill: #0f172a; font: 700 17px Arial, sans-serif; }
+    .small { fill: #334155; font: 500 14px Arial, sans-serif; }
+    .line { stroke: #0f766e; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+  </style>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#0f766e"/></marker></defs>
+  <rect class="bg" width="1200" height="360"/>
+  <text x="60" y="54" class="title">GB10 Candidate Qualification Gates</text>
+  <text x="60" y="82" class="small">Every production-facing claim must pass the gates in order with private evidence artifacts.</text>
+
+  <rect class="box" x="60" y="145" width="176" height="110" rx="8"/>
+  <text x="82" y="183" class="text">1. Source</text>
+  <text x="82" y="211" class="small">lock and patches</text>
+  <text x="82" y="232" class="small">static contracts</text>
+
+  <rect class="box" x="276" y="145" width="176" height="110" rx="8"/>
+  <text x="298" y="183" class="text">2. Deploy</text>
+  <text x="298" y="211" class="small">ARM64 build</text>
+  <text x="298" y="232" class="small">two-node parity</text>
+
+  <rect class="box" x="492" y="145" width="176" height="110" rx="8"/>
+  <text x="514" y="183" class="text">3. Cold Boot</text>
+  <text x="514" y="211" class="small">mHC and DSV4</text>
+  <text x="514" y="232" class="small">fresh JIT caches</text>
+
+  <rect class="box" x="708" y="145" width="176" height="110" rx="8"/>
+  <text x="730" y="183" class="text">4. Behavior</text>
+  <text x="730" y="211" class="small">API and tools</text>
+  <text x="730" y="232" class="small">cancellation</text>
+
+  <rect class="box" x="924" y="145" width="176" height="110" rx="8"/>
+  <text x="946" y="183" class="text">5. Evidence</text>
+  <text x="946" y="211" class="small">soak and retrieval</text>
+  <text x="946" y="232" class="small">latency-aware A/B</text>
+
+  <path class="line" d="M236 200 H266"/><path class="line" d="M452 200 H482"/><path class="line" d="M668 200 H698"/><path class="line" d="M884 200 H914"/>
+  <rect class="good" x="419" y="294" width="362" height="42" rx="7"/>
+  <text x="457" y="322" class="text">rc7: qualified candidate evidence</text>
+</svg>

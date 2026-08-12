@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+  <title id="title">Long-context A/B improvements for vLLM 0.27.1 rc7</title>
+  <desc id="desc">Four 131K and 300K prompt cases show favorable candidate changes for prefill, TTFT, and end-to-end latency.</desc>
+  <style>
+    .bg { fill: #f8fafc; }
+    .title { fill: #0f172a; font: 700 30px Arial, sans-serif; }
+    .sub { fill: #475569; font: 500 17px Arial, sans-serif; }
+    .axis { stroke: #94a3b8; stroke-width: 2; }
+    .grid { stroke: #cbd5e1; stroke-width: 1; }
+    .label { fill: #334155; font: 600 16px Arial, sans-serif; }
+    .value { fill: #0f172a; font: 700 17px Arial, sans-serif; }
+    .note { fill: #475569; font: 500 15px Arial, sans-serif; }
+    .prefill { fill: #0f766e; }
+    .ttft { fill: #0284c7; }
+    .e2e { fill: #65a30d; }
+    .warn { fill: #b45309; }
+  </style>
+  <rect class="bg" width="1200" height="680"/>
+  <text x="60" y="52" class="title">Long-Context A/B: rc7 Candidate versus Stage-C 1M Baseline</text>
+  <text x="60" y="80" class="sub">Positive percentage means favorable candidate movement. Fixed 256-token outputs, fixture-locked prompts, matched trials.</text>
+
+  <line class="axis" x1="235" y1="570" x2="1120" y2="570"/>
+  <line class="grid" x1="235" y1="130" x2="235" y2="570"/>
+  <line class="grid" x1="412" y1="130" x2="412" y2="570"/>
+  <line class="grid" x1="589" y1="130" x2="589" y2="570"/>
+  <line class="grid" x1="766" y1="130" x2="766" y2="570"/>
+  <line class="grid" x1="943" y1="130" x2="943" y2="570"/>
+  <line class="grid" x1="1120" y1="130" x2="1120" y2="570"/>
+  <text x="228" y="600" class="note">0%</text>
+  <text x="398" y="600" class="note">3%</text>
+  <text x="575" y="600" class="note">6%</text>
+  <text x="752" y="600" class="note">9%</text>
+  <text x="925" y="600" class="note">12%</text>
+  <text x="1013" y="642" class="note">favorable candidate change</text>
+
+  <text x="60" y="166" class="label">131K / C1</text>
+  <rect class="prefill" x="235" y="132" width="566" height="28" rx="4"/><text x="814" y="153" class="value">Prefill +9.6%</text>
+  <rect class="ttft" x="235" y="169" width="519" height="28" rx="4"/><text x="767" y="190" class="value">TTFT +8.8%</text>
+  <rect class="e2e" x="235" y="206" width="478" height="28" rx="4"/><text x="726" y="227" class="value">E2E +8.1%</text>
+
+  <text x="60" y="281" class="label">131K / C2</text>
+  <rect class="prefill" x="235" y="247" width="660" height="28" rx="4"/><text x="908" y="268" class="value">Prefill +11.2%</text>
+  <rect class="ttft" x="235" y="284" width="613" height="28" rx="4"/><text x="861" y="305" class="value">TTFT +10.4%</text>
+  <rect class="e2e" x="235" y="321" width="608" height="28" rx="4"/><text x="856" y="342" class="value">E2E +10.3%</text>
+
+  <text x="60" y="396" class="label">300K / C1</text>
+  <rect class="prefill" x="235" y="362" width="531" height="28" rx="4"/><text x="779" y="383" class="value">Prefill +9.0%</text>
+  <rect class="ttft" x="235" y="399" width="490" height="28" rx="4"/><text x="738" y="420" class="value">TTFT +8.3%</text>
+  <rect class="e2e" x="235" y="436" width="484" height="28" rx="4"/><text x="732" y="457" class="value">E2E +8.2%</text>
+
+  <text x="60" y="511" class="label">300K / C2</text>
+  <rect class="prefill" x="235" y="477" width="572" height="28" rx="4"/><text x="820" y="498" class="value">Prefill +9.7%</text>
+  <rect class="ttft" x="235" y="514" width="537" height="28" rx="4"/><text x="785" y="535" class="value">TTFT +9.1%</text>
+  <rect class="e2e" x="235" y="551" width="537" height="19" rx="4"/><text x="785" y="567" class="value">E2E +9.1%</text>
+
+  <rect x="838" y="99" width="282" height="54" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+  <text x="855" y="122" class="warn">900K retrieval: passed</text>
+  <text x="855" y="143" class="note">4.0% lower elapsed latency</text>
+</svg>

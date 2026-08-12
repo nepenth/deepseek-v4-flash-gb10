@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title desc">
+  <title id="title">DeepSeek V4 Flash GB10 two-node serving architecture</title>
+  <desc id="desc">Operator control plane, pinned runtime build, two DGX Spark nodes, and OpenAI-compatible API.</desc>
+  <style>
+    .bg { fill: #f8fafc; }
+    .panel { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; }
+    .header { fill: #0f766e; }
+    .runtime { fill: #155e75; }
+    .accent { fill: #f59e0b; }
+    .soft { fill: #e0f2fe; stroke: #0284c7; stroke-width: 2; }
+    .text { fill: #0f172a; font: 500 18px Arial, sans-serif; }
+    .small { fill: #334155; font: 500 15px Arial, sans-serif; }
+    .label { fill: #ffffff; font: 700 18px Arial, sans-serif; }
+    .title { fill: #0f172a; font: 700 29px Arial, sans-serif; }
+    .line { stroke: #475569; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+    .dash { stroke: #0f766e; stroke-width: 3; stroke-dasharray: 8 6; fill: none; marker-end: url(#arrow-teal); }
+  </style>
+  <defs>
+    <marker id="arrow" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto"><path d="M0,0 L11,5.5 L0,11 Z" fill="#475569"/></marker>
+    <marker id="arrow-teal" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto"><path d="M0,0 L11,5.5 L0,11 Z" fill="#0f766e"/></marker>
+  </defs>
+  <rect class="bg" width="1200" height="620"/>
+  <text x="60" y="55" class="title">DeepSeek V4 Flash GB10 Serving Lane</text>
+  <text x="60" y="84" class="small">Pinned vLLM 0.27.1, TP=2, DSpark K=5, DeepGEMM MXFP4, FP8 DS-MLA</text>
+
+  <rect class="panel" x="60" y="130" width="260" height="360" rx="8"/>
+  <rect class="header" x="60" y="130" width="260" height="58" rx="8"/>
+  <text x="86" y="167" class="label">Operator Control Plane</text>
+  <text x="88" y="228" class="text">vllm-switch</text>
+  <text x="88" y="260" class="small">validate both nodes</text>
+  <text x="88" y="290" class="small">record active profile</text>
+  <text x="88" y="320" class="small">capture failures</text>
+  <text x="88" y="350" class="small">rollback safely</text>
+  <rect class="soft" x="84" y="392" width="210" height="67" rx="6"/>
+  <text x="104" y="420" class="text">1M baseline</text>
+  <text x="104" y="445" class="small">candidate rollback arm</text>
+
+  <rect class="panel" x="400" y="130" width="330" height="360" rx="8"/>
+  <rect class="runtime" x="400" y="130" width="330" height="58" rx="8"/>
+  <text x="427" y="167" class="label">Pinned Runtime Recipe</text>
+  <text x="428" y="228" class="text">vLLM 0.27.1</text>
+  <text x="428" y="260" class="small">28 ordered runtime patches</text>
+  <text x="428" y="290" class="small">FlashInfer DSV4 192/256 overlay</text>
+  <text x="428" y="320" class="small">SM121 ARM64 source build</text>
+  <text x="428" y="350" class="small">cold-cache JIT qualification</text>
+  <rect x="425" y="392" width="278" height="67" rx="6" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+  <text x="446" y="420" class="text">fp8_ds_mla</text>
+  <text x="446" y="445" class="small">native sparse MLA path</text>
+
+  <rect class="panel" x="810" y="130" width="330" height="360" rx="8"/>
+  <rect class="header" x="810" y="130" width="330" height="58" rx="8"/>
+  <text x="841" y="167" class="label">Two DGX Spark Nodes</text>
+  <rect x="840" y="216" width="270" height="92" rx="6" fill="#ecfeff" stroke="#0f766e" stroke-width="2"/>
+  <text x="864" y="250" class="text">Rank 0: GB10 / SM121</text>
+  <text x="864" y="278" class="small">OpenAI-compatible API</text>
+  <rect x="840" y="342" width="270" height="92" rx="6" fill="#ecfeff" stroke="#0f766e" stroke-width="2"/>
+  <text x="864" y="376" class="text">Rank 1: GB10 / SM121</text>
+  <text x="864" y="404" class="small">tensor-parallel worker</text>
+
+  <path class="line" d="M320 310 H390"/>
+  <path class="line" d="M730 310 H800"/>
+  <path class="dash" d="M973 310 V338"/>
+
+  <rect x="60" y="535" width="1080" height="45" rx="6" fill="#e2e8f0"/>
+  <text x="85" y="564" class="small">Evidence gates: source contract - image parity - cold boot - API contracts - soak - retrieval - fixture-locked latency A/B</text>
+</svg>
