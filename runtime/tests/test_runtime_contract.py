@@ -105,10 +105,10 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn(
             "vllm-profile-runner start deepseek-v4-flash-0731-dspark", legacy_profile
         )
-        self.assertIn("MAX_MODEL_LEN=393216", example)
+        self.assertIn("MAX_MODEL_LEN=1048576", example)
         self.assertIn("MAX_NUM_SEQS=6", example)
-        self.assertIn("MAX_NUM_BATCHED_TOKENS=4096", example)
-        self.assertIn("GPU_MEMORY_UTILIZATION_TEXT=0.78", example)
+        self.assertIn("MAX_NUM_BATCHED_TOKENS=8192", example)
+        self.assertIn("GPU_MEMORY_UTILIZATION_TEXT=0.84", example)
         self.assertIn("MTP_NUM_TOKENS=5", example)
         self.assertIn("KV_CACHE_DTYPE=fp8_ds_mla", example)
         self.assertIn("KV_BLOCK_SIZE=256", example)
