@@ -15,6 +15,10 @@ METRICS = (
     ("median_output_tok_s", "Per-request output tok/s", True),
     ("median_ttft_s", "Median TTFT s", False),
     ("p95_ttft_s", "P95 TTFT s", False),
+    ("median_elapsed_s", "Median end-to-end latency s", False),
+    ("p95_elapsed_s", "P95 end-to-end latency s", False),
+    ("median_decode_token_latency_ms", "Median decode-token latency ms", False),
+    ("p95_decode_token_latency_ms", "P95 decode-token latency ms", False),
 )
 
 

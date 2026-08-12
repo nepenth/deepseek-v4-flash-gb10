@@ -188,6 +188,7 @@ def stream_one(base_url: str, model: str, prompt: str, max_tokens: int) -> dict[
     decode_s = max(finished - first, 0.001)
     return {
         "completion_tokens": completion_tokens,
+        "decode_token_latency_ms": 1000.0 * decode_s / completion_tokens,
         "elapsed_s": finished - started,
         "output_tok_s": completion_tokens / decode_s,
         "prefill_tok_s": prompt_tokens / max(ttft_s, 0.001),
@@ -232,12 +233,20 @@ def percentile(values: list[float], fraction: float) -> float:
 def summarize(trials: list[dict[str, Any]]) -> dict[str, float]:
     requests = [request for trial in trials for request in trial["requests"]]
     return {
+        "median_decode_token_latency_ms": statistics.median(
+            float(request["decode_token_latency_ms"]) for request in requests
+        ),
+        "median_elapsed_s": statistics.median(float(request["elapsed_s"]) for request in requests),
         "median_aggregate_output_tok_s": statistics.median(
             float(trial["aggregate_output_tok_s"]) for trial in trials
         ),
         "median_output_tok_s": statistics.median(float(request["output_tok_s"]) for request in requests),
         "median_prefill_tok_s": statistics.median(float(request["prefill_tok_s"]) for request in requests),
         "median_ttft_s": statistics.median(float(request["ttft_s"]) for request in requests),
+        "p95_decode_token_latency_ms": percentile(
+            [float(request["decode_token_latency_ms"]) for request in requests], 0.95
+        ),
+        "p95_elapsed_s": percentile([float(request["elapsed_s"]) for request in requests], 0.95),
         "p95_ttft_s": percentile([float(request["ttft_s"]) for request in requests], 0.95),
     }
 
