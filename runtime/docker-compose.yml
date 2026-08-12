@@ -98,6 +98,7 @@ services:
       MASTER_ADDR: "${MASTER_ADDR}"
       MASTER_PORT: "${MASTER_PORT:-25000}"
       MTP_NUM_TOKENS: "${MTP_NUM_TOKENS:-3}"
+      MOE_BACKEND: "${MOE_BACKEND:-flashinfer_b12x}"
 
     command:
       - bash

@@ -89,6 +89,7 @@ services:
       MTP_NUM_TOKENS: "${MTP_NUM_TOKENS:-5}"
       DEFAULT_THINKING: "${DEFAULT_THINKING:-low}"
       KV_CACHE_DTYPE: "${KV_CACHE_DTYPE:-fp8_ds_mla}"
+      MOE_BACKEND: "${MOE_BACKEND:-flashinfer_b12x}"
       # Mode 2 guards every DSv4 cache group against same-step prefix hits
       # before the producing GPU forward has written KV.
       VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT: "${VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT:-2}"

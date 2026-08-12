@@ -95,6 +95,7 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("MTP_NUM_TOKENS=5", example)
         self.assertIn("KV_CACHE_DTYPE=fp8_ds_mla", example)
         self.assertIn("MOE_BACKEND=deep_gemm", example)
+        self.assertIn('MOE_BACKEND: "${MOE_BACKEND:-flashinfer_b12x}"', compose)
         self.assertIn("--moe-backend $${MOE_BACKEND:-flashinfer_b12x}", compose)
         self.assertIn("MOE_BACKEND=\"$MOE_BACKEND\"", start)
         self.assertIn("MOE_BACKEND='%s'", start)
