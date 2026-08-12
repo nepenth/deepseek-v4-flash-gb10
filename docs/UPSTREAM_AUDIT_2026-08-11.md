@@ -7,7 +7,9 @@ selection, not a claim of two-node hardware validation.
 
 - vLLM 0.27.1 (`6e448d0e`) is the latest published release at audit time.
 - CUDA 13.0.3, PyTorch 2.13.0, and FlashInfer 0.6.16.post3 remain owned by
-  that release. FlashInfer is not independently upgraded across its ABI.
+  that release. The candidate does not independently upgrade FlashInfer across
+  its ABI; it applies the exact, checksummed SM120 DSV4 source delta described
+  in the post-audit correction below.
 - CUTLASS DSL 4.6.2 and QuACK 0.6.4 move as the paired versions merged in
   vLLM PR #51566.
 - The official checkpoint is pinned to revision
@@ -53,8 +55,27 @@ introduced by later PR #50484, which is absent from the v0.27.1 base used here.
 - A true packed `nvfp4_ds_mla`: no upstream DeepSeek V4 writer/reader exists.
   The 352/368-byte research records are based on 512+64 geometry, not DeepSeek
   V4's 448-dimension NoPE plus 64-dimension RoPE geometry.
-- FlashInfer post-release tags: vLLM main still owns 0.6.16.post3, so changing
-  it alone would trade a tested dependency graph for an unverified one.
+- Broad FlashInfer post-release upgrades: vLLM main still owns 0.6.16.post3,
+  so changing the package alone would trade a tested dependency graph for an
+  unverified one.
+
+## Post-audit correction: DSpark SM120 DSV4 top-k 256
+
+The first two-node candidate runs exposed an SM120 sparse-MLA dispatch gap
+that was not resolved by the original patch series. DeepSeek V4's DSpark K=5
+non-causal decode has 133 active SWA entries, rounded by vLLM to a 256-wide
+index tensor. FlashInfer `0.6.16.post3` supplies direct DSV4 SM120 decode only
+for top-k 128, 512, and 1024, so the 256 shape falls into the prefill-only
+orchestrator and fails for the 30-token mHC warmup batch.
+
+FlashInfer PR #4380, merged as
+`24d7dfb2639083c5a4d418881099421fc800b7bb`, adds compiled DSV4 192/256 decode
+and prefill dispatch plus a fail-loud Python guard. The `v0.6.17` tag does not
+contain this commit. The candidate therefore retains `flashinfer-python`
+`0.6.16.post3`, overlays just that upstream diff, deletes only the stale
+`sparse_mla_sm120` AOT module, and JIT-builds the patched module in a separate
+mounted workspace. This avoids a broad dependency replacement while using the
+newest upstream implementation of the required kernel.
 
 ## Primary references
 
@@ -69,6 +90,7 @@ introduced by later PR #50484, which is absent from the v0.27.1 base used here.
 - <https://github.com/vllm-project/vllm/pull/50365>
 - <https://github.com/vllm-project/vllm/pull/51725>
 - <https://github.com/vllm-project/vllm/pull/51566>
+- <https://github.com/flashinfer-ai/flashinfer/pull/4380>
 - <https://github.com/NVIDIA/NemoClaw/blob/main/managed-inference/recipes/vllm.deepseek-v4-flash-0731.spark-dual.v1.yaml>
 - <https://github.com/lrozewicz/vLLM-Moet-GB10>
 

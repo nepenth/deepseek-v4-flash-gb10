@@ -36,10 +36,13 @@ fi
   --build-arg "VLLM_BASE=$base_image" \
   --build-arg "VLLM_COMMIT=$VLLM_COMMIT" \
   --build-arg "VLLM_VERSION=$VLLM_VERSION" \
+  --build-arg "FLASHINFER_VERSION=$FLASHINFER_VERSION" \
+  --build-arg "FLASHINFER_DSV4_SM120_COMMIT=$FLASHINFER_DSV4_SM120_COMMIT" \
+  --build-arg "FLASHINFER_DSV4_SM120_PATCH_SHA256=$FLASHINFER_DSV4_SM120_PATCH_SHA256" \
   --tag "$final_image" \
   "$root"
 
 "$docker_cmd" run --rm --entrypoint python3 "$final_image" -c \
-  'from importlib.metadata import version; import torch, vllm; print({"vllm": vllm.__version__, "torch": torch.__version__, "flashinfer": version("flashinfer-python")})'
+  'from importlib.metadata import version; from pathlib import Path; from flashinfer.mla._sparse_mla_sm120 import _DECODE_DSV4_DISPATCH; import flashinfer_jit_cache, torch, vllm; assert (32, 192) in _DECODE_DSV4_DISPATCH; assert (32, 256) in _DECODE_DSV4_DISPATCH; assert not (Path(flashinfer_jit_cache.get_jit_cache_dir()) / "sparse_mla_sm120" / "sparse_mla_sm120.so").exists(); print({"vllm": vllm.__version__, "torch": torch.__version__, "flashinfer": version("flashinfer-python"), "dsv4_sm120_topk": [192, 256]})'
 
 echo "Built $final_image from vLLM $VLLM_COMMIT for SM121"

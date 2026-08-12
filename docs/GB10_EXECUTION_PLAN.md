@@ -27,16 +27,16 @@ image digest. Preserve complete build logs and verify:
    pinned package.
 4. All 48 checkpoint shards load on TP=2 without scale-layout assertions,
    illegal memory access, mid-request JIT, or unsupported-kernel fallback.
-5. The selected paths are DSpark K=5, `fp8_ds_mla`, native SM121 sparse MLA,
-   a `KV_BLOCK_SIZE=256` global cache with zero-copy 64-token SWA views for
-   FlashInfer small decode, and `deep_gemm` MXFP4 MoE for the v0.27.1-line
-   candidate.
+5. The selected paths are DSpark K=5, `fp8_ds_mla`, native SM121 sparse MLA
+   with FlashInfer's native top-k 192/256 dispatch, a `KV_BLOCK_SIZE=256`
+   global cache with native 64-token SWA pages, and `deep_gemm` MXFP4 MoE for
+   the v0.27.1-line candidate.
 
 Build three images for diagnosis and attribution:
 
 - `boot-minimal`: v0.27.1 plus only the DeepGEMM build fix;
-- `candidate`: the complete 27-patch series, including the FlashInfer SM120
-  small-batch sparse-MLA dispatch repair;
+- `candidate`: the complete 27-patch series plus the checksummed upstream
+  FlashInfer SM120 DSV4 192/256-top-k dispatch repair;
 - `reference`: the previously working Anemll/NVIDIA-derived image, clearly
   labeled as a different vLLM/dependency baseline.
 

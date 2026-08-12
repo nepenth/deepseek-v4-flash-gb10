@@ -37,7 +37,9 @@ Current runtime inputs:
   matching FA3 architecture;
 - shallow retrieval of the pinned Triton source used solely for its installed
   `triton_kernels` Python package;
-- no post-build dependency downgrade and no installed-package file overlay.
+- no post-build dependency downgrade; the only installed-package source
+  overlay is the checksummed upstream FlashInfer PR #4380 DSV4 SM120
+  192/256-top-k patch, which invalidates only its stale sparse-MLA AOT module.
 
 The old `nvfp4_ds_mla` spelling was an FP8 compatibility alias, not a true
 packed 4-bit KV cache. See the parent repo's `docs/NVFP4_DS_MLA.md`.

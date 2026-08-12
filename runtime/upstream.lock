@@ -4,9 +4,9 @@ VLLM_TAG=v0.27.1
 VLLM_COMMIT=6e448d0ea9bf3d88d898b65449ca6dc2aec170ac
 VLLM_VERSION=0.27.1
 
-# These versions are owned by vLLM v0.27.1. The downstream image does not
-# replace them; the values are repeated here so contract checks can detect
-# dependency drift before a multi-hour ARM64 build.
+# These versions are owned by vLLM v0.27.1. The downstream image retains them
+# so contract checks can detect dependency drift before a multi-hour ARM64
+# build.
 CUDA_VERSION=13.0.3
 PYTHON_VERSION=3.12
 TORCH_VERSION=2.13.0
@@ -14,6 +14,15 @@ FLASHINFER_VERSION=0.6.16.post3
 CUTLASS_DSL_VERSION=4.6.2
 QUACK_VERSION=0.6.4
 TVM_FFI_VERSION=0.1.11
+
+# FlashInfer PR #4380 adds native SM120 DSV4 decode and prefill dispatch for
+# top-k 192/256. Retain vLLM's FlashInfer package pin and apply this exact,
+# independently checksummed source overlay; it is not equivalent to the
+# v0.6.17 release, which predates the required commit.
+FLASHINFER_DSV4_SM120_REPOSITORY=https://github.com/flashinfer-ai/flashinfer.git
+FLASHINFER_DSV4_SM120_COMMIT=24d7dfb2639083c5a4d418881099421fc800b7bb
+FLASHINFER_DSV4_SM120_PATCH_SHA256=4063c369beefd99e414eebd5d05311105259428f09ba26ef8d8abe116bc04f9c
+FLASHINFER_DSV4_SM120_TOPK=192,256
 
 # vLLM PR #50796 restores the SM120/SM121 scale-factor layout while retaining
 # SITU activation support. v0.27.1's e21c821 pin cannot post-process the

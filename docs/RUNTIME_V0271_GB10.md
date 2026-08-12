@@ -10,13 +10,15 @@ commit 6e448d0ea9bf3d88d898b65449ca6dc2aec170ac
 CUDA 13.0.3
 PyTorch 2.13.0
 FlashInfer 0.6.16.post3
+FlashInfer SM120 DSV4 top-k overlay from 24d7dfb2639083c5a4d418881099421fc800b7bb
 CUTLASS DSL 4.6.2 / QuACK 0.6.4 (merged upstream post-release patch)
 DeepGEMM 2fd67329ec2942f65ba35d561256ab6ed3b903cb
 TORCH_CUDA_ARCH_LIST=12.1a
 ```
 
 The upstream Dockerfile builds the `vllm-openai` target. The downstream layer
-adds labels and licenses only; it does not replace vLLM's dependency pins.
+retains vLLM's package pins and applies only the independently checksummed
+FlashInfer SM120 source delta described below.
 
 ## Patch policy
 
@@ -43,15 +45,20 @@ The current series contains:
   hardware-validated jasl SM121 preview branch.
 - a direct FlashInfer SM120 sparse-MLA runner path with graph-stable split-K
   scratch for the <=64-token DeepSeek V4 decode and prefill dispatch.
+- the exact FlashInfer PR #4380 CUDA/Python dispatch delta for native DSV4
+  top-k 192/256 on SM120/SM121. The image removes only the stale
+  `sparse_mla_sm120` AOT module, so the patched module JIT-builds into an
+  isolated mounted workspace on first boot.
 
-The FlashInfer 0.6.16 DSV4 small-decode specialization has a hard 64-token
-SWA-page requirement, while DeepSeek V4 C128 compressed cache pages require a
-global block size of at least 128. The GB10 canary therefore fixes
-`KV_BLOCK_SIZE=256` on both ranks and zero-copy splits only the packed SWA
-cache into 64-token views before the SM120 runner. This preserves C4A/C128
-native page geometry, lets the 30-token mHC warmup select the direct decoder,
-and prevents a stale private environment file from selecting an incompatible
-layout.
+DeepSeek V4's independent SWA cache already uses native 64-token pages; the
+global cache remains `KV_BLOCK_SIZE=256` because C128 compressed pages require
+a nonzero storage block. Under DSpark K=5, vLLM creates a 256-wide non-causal
+SWA index buffer for 133 active entries. Stock FlashInfer 0.6.16 only exposes
+SM120 DSV4 decode top-k 128/512/1024, which incorrectly routes that 256 shape
+to prefill-only attention. PR #4380 adds native 192/256 kernels and an
+actionable unsupported-shape error. Release `v0.6.17` predates the required
+commit, so the recipe uses the exact source delta without a broad package
+upgrade.
 
 The broad v0.25 overlay under `runtime/overlay/` remains for history and
 attribution. It is not copied into v0.27.1.

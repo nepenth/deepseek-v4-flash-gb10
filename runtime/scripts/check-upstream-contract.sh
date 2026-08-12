@@ -34,6 +34,14 @@ require_absent() {
 
 require_text "torch==$TORCH_VERSION" requirements/cuda.txt
 require_text "flashinfer-python==$FLASHINFER_VERSION" requirements/cuda.txt
+[[ "$(sha256sum "$root/patches/flashinfer/0001-sm120-dsv4-192-256-topk.patch" | awk '{print $1}')" == "$FLASHINFER_DSV4_SM120_PATCH_SHA256" ]] || \
+  fail "FlashInfer SM120 overlay checksum drifted"
+grep -Fq 'DSV4_DISPATCH(32, 256)' \
+  "$root/patches/flashinfer/0001-sm120-dsv4-192-256-topk.patch" || \
+  fail "FlashInfer SM120 overlay is missing DSV4 H32/top-k256 decode"
+grep -Fq '(32, 256)' \
+  "$root/patches/flashinfer/0001-sm120-dsv4-192-256-topk.patch" || \
+  fail "FlashInfer SM120 overlay is missing Python H32/top-k256 dispatch"
 if [[ "$phase" == "patched" ]]; then
   require_text "nvidia-cutlass-dsl[cu13]==$CUTLASS_DSL_VERSION" requirements/cuda.txt
   require_text "quack-kernels==$QUACK_VERSION" requirements/cuda.txt

@@ -31,6 +31,14 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertEqual(lock["BUILD_MAX_JOBS"], "16")
         self.assertEqual(lock["BUILD_NVCC_THREADS"], "8")
         self.assertEqual(lock["FLASHINFER_VERSION"], "0.6.16.post3")
+        self.assertEqual(
+            lock["FLASHINFER_DSV4_SM120_COMMIT"],
+            "24d7dfb2639083c5a4d418881099421fc800b7bb",
+        )
+        self.assertEqual(lock["FLASHINFER_DSV4_SM120_TOPK"], "192,256")
+        self.assertRegex(
+            lock["FLASHINFER_DSV4_SM120_PATCH_SHA256"], r"^[0-9a-f]{64}$"
+        )
         self.assertEqual(lock["CUTLASS_DSL_VERSION"], "4.6.2")
         self.assertEqual(lock["QUACK_VERSION"], "0.6.4")
         self.assertEqual(
@@ -52,7 +60,7 @@ class RuntimeContractTests(unittest.TestCase):
             self.assertTrue(patch.is_file(), patch)
             self.assertRegex(patch.read_text()[:200], r"^From [0-9a-f]{40} ")
 
-    def test_runtime_does_not_overlay_or_downgrade_upstream(self) -> None:
+    def test_runtime_uses_a_narrow_verified_upstream_overlay(self) -> None:
         build_script = (RUNTIME / "scripts/build-image.sh").read_text()
         dockerfile = (RUNTIME / "docker/Dockerfile.runtime").read_text()
         self.assertNotIn("overlay/vllm", build_script)
@@ -60,6 +68,10 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("torch_cuda_arch_list=$TORCH_CUDA_ARCH_LIST", build_script)
         self.assertIn("max_jobs=$BUILD_MAX_JOBS", build_script)
         self.assertIn("nvcc_threads=$BUILD_NVCC_THREADS", build_script)
+        self.assertIn("FLASHINFER_DSV4_SM120_COMMIT", build_script)
+        self.assertIn("0001-sm120-dsv4-192-256-topk.patch", dockerfile)
+        self.assertIn("flashinfer_jit_cache/jit_cache/sparse_mla_sm120", dockerfile)
+        self.assertIn("FLASHINFER_DSV4_SM120_PATCH_SHA256", dockerfile)
         legacy_start = (RUNTIME / "scripts/start-node.sh").read_text()
         self.assertIn("ALLOW_LEGACY_RUNTIME_COMPOSE", legacy_start)
 
@@ -97,19 +109,25 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("KV_CACHE_DTYPE=fp8_ds_mla", example)
         self.assertIn("KV_BLOCK_SIZE=256", example)
         self.assertIn("MOE_BACKEND=deep_gemm", example)
-        self.assertIn("v0.27.1-gb10-rc3", profile)
-        self.assertIn("v0.27.1-gb10-rc3", example)
+        self.assertIn("v0.27.1-gb10-rc4", profile)
+        self.assertIn("v0.27.1-gb10-rc4", example)
         self.assertIn('MOE_BACKEND: "${MOE_BACKEND:-flashinfer_b12x}"', compose)
         self.assertIn("--moe-backend $${MOE_BACKEND:-flashinfer_b12x}", compose)
         self.assertIn("MOE_BACKEND=\"$MOE_BACKEND\"", start)
         self.assertIn("MOE_BACKEND='%s'", start)
         self.assertIn("VLLM_SWITCH_IMAGE=$DOCKER_IMAGE", profile)
         self.assertIn("VLLM_SWITCH_KV_BLOCK_SIZE=256", profile)
+        self.assertIn("VLLM_SWITCH_FLASHINFER_WORKSPACE_BASE", profile)
         self.assertIn('DSPARK_VLLM_IMAGE="$VLLM_SWITCH_IMAGE"', start)
         self.assertIn('KV_BLOCK_SIZE="$VLLM_SWITCH_KV_BLOCK_SIZE"', start)
+        self.assertIn(
+            'FLASHINFER_WORKSPACE_BASE="$VLLM_SWITCH_FLASHINFER_WORKSPACE_BASE"',
+            start,
+        )
         self.assertIn("requires KV_BLOCK_SIZE=256", start)
         self.assertIn("KV_BLOCK_SIZE=\"$KV_BLOCK_SIZE\"", start)
         self.assertIn("DSPARK_VLLM_IMAGE=\"$DSPARK_VLLM_IMAGE\"", start)
+        self.assertIn("FLASHINFER_WORKSPACE_BASE", example)
         self.assertIn("DSPARK_MODEL_HOST", compose)
 
     def test_sm120_sparse_mla_small_decode_patch_is_included(self) -> None:
@@ -120,7 +138,16 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("_reserve_sm120_decode_workspace", patch)
         self.assertIn("mid_out=mid_out", patch)
         self.assertIn("_FLASHINFER_SM120_DECODE_MAX_TOKENS = 64", patch)
-        self.assertIn("kv_cache = kv_cache.view(-1, 64, 1, 584)", patch)
+        self.assertNotIn("kv_cache = kv_cache.view(-1, 64, 1, 584)", patch)
+
+    def test_flashinfer_sm120_topk_overlay_is_complete(self) -> None:
+        patch = (
+            RUNTIME / "patches/flashinfer/0001-sm120-dsv4-192-256-topk.patch"
+        ).read_text()
+        self.assertIn("DSV4_DISPATCH(32, 256)", patch)
+        self.assertIn("DSV4_DISPATCH(32, 192)", patch)
+        self.assertIn("(32, 256)", patch)
+        self.assertIn("SM120 sparse-MLA has no decode kernel", patch)
 
     def test_startup_fails_when_a_rank_exits_before_readiness(self) -> None:
         start = (ROOT / "start-deepseek-v4-flash-dspark.sh").read_text()

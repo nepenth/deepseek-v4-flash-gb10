@@ -1,21 +1,22 @@
 From 827f8f5a6d30ec0450f21b8928a0d19d5f2cb7ef Mon Sep 17 00:00:00 2001
 From: Chris <16943149+nepenth@users.noreply.github.com>
 Date: Tue, 11 Aug 2026 22:44:00 -0400
-Subject: [PATCH 27/27] Fix SM120 DeepSeek V4 sparse MLA small-batch dispatch
+Subject: [PATCH 27/27] Drive SM120 DeepSeek V4 sparse MLA decode directly
 
-FlashInfer 0.6.16's public DeepSeek V4 sparse-MLA wrapper does not provide
-the split-K `mid_out` and `mid_lse` buffers required when the SM120 backend
-dispatches a query with 64 or fewer rows to its decode kernel. The kernel then
-rejects mHC warmup and short prompt/decode batches with `num_tokens > 64`.
+FlashInfer's public DeepSeek V4 sparse-MLA wrapper does not provide the
+split-K `mid_out` and `mid_lse` buffers required by its SM120 decode kernel
+when a query has 64 or fewer rows.
 
 Create FlashInfer's sparse SM120 runner once per attention layer and drive it
 directly. Reserve its graph-stable scratch through vLLM's workspace manager
 during warmup and supply it for the small-row decode path. The same helper is
-used for short prefill chunks, which select the same kernel. This retains the
-existing `fp8_ds_mla` packed cache and DeepSeek V4 sparse-index metadata.
+used for short prefill chunks, which select the same kernel. Native 192/256
+top-k dispatch is supplied by the separately pinned FlashInfer PR #4380
+overlay; this patch retains the existing `fp8_ds_mla` packed cache and
+DeepSeek V4 sparse-index metadata.
 ---
- .../models/deepseek_v4/nvidia/flashinfer_sparse.py | 146 +++++++++++++++++--
- 1 file changed, 119 insertions(+), 27 deletions(-)
+ .../models/deepseek_v4/nvidia/flashinfer_sparse.py | 153 +++++++++++++++++----
+ 1 file changed, 123 insertions(+), 30 deletions(-)
 
 diff --git a/vllm/models/deepseek_v4/nvidia/flashinfer_sparse.py b/vllm/models/deepseek_v4/nvidia/flashinfer_sparse.py
 index d8742e6..cf0f923 100644
@@ -67,7 +68,7 @@ index d8742e6..cf0f923 100644
  def _packed_block_span(pool: torch.Tensor) -> int:
      """Per-block stride of ``pool`` in tokens (``stride(0)//stride(-2)``): ==
      block_size for unpacked KV, larger when packed (#44577). Raises if not
-@@ -546,10 +569,36 @@ class DeepseekV4FlashInferSM120Attention(DeepseekV4Attention):
+@@ -546,10 +569,11 @@ class DeepseekV4FlashInferSM120Attention(DeepseekV4Attention):
      @staticmethod
      def _as_sparse_cache(kv_cache: torch.Tensor) -> torch.Tensor:
          if kv_cache.dtype == torch.float8_e4m3fn:
@@ -78,31 +79,6 @@ index d8742e6..cf0f923 100644
 +        if kv_cache.dim() != 4:
 +            kv_cache = kv_cache.unsqueeze(-2)
 +
-+        # vLLM allocates 256-token physical pages for the global KV cache.
-+        # FlashInfer's SM120 DSV4 small-decode kernel, however, consumes the
-+        # SWA cache as 64-token pages. The packed token records are contiguous
-+        # and sparse indices are global slots, so split only oversized SWA
-+        # pages into zero-copy 64-token views. C4A (64-token) and C128A
-+        # (2-token) compressed pages deliberately retain their native geometry.
-+        if (
-+            kv_cache.dtype == torch.uint8
-+            and kv_cache.shape[-1] == 584
-+            and kv_cache.shape[-3] > 64
-+        ):
-+            page_size = kv_cache.shape[-3]
-+            if page_size % 64 != 0:
-+                raise ValueError(
-+                    "Packed SM120 DSV4 SWA page size must be a multiple of 64, "
-+                    f"got {page_size}."
-+                )
-+            expected_strides = (page_size * 584, 584, 584, 1)
-+            if kv_cache.stride() != expected_strides:
-+                raise ValueError(
-+                    "Packed SM120 DSV4 KV cache cannot be split into zero-copy "
-+                    f"64-token SWA pages: shape={tuple(kv_cache.shape)}, "
-+                    f"strides={kv_cache.stride()}, expected={expected_strides}."
-+                )
-+            kv_cache = kv_cache.view(-1, 64, 1, 584)
 +        return kv_cache
  
      @classmethod

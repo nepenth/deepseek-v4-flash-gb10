@@ -4,21 +4,44 @@ FROM ${VLLM_BASE}
 
 ARG VLLM_COMMIT
 ARG VLLM_VERSION
+ARG FLASHINFER_VERSION
+ARG FLASHINFER_DSV4_SM120_COMMIT
+ARG FLASHINFER_DSV4_SM120_PATCH_SHA256
 
 LABEL org.opencontainers.image.source="https://github.com/nepenth/DeepSeek-v4-Flash-DSpark-2x-DGX-Spark"
 LABEL org.opencontainers.image.description="vLLM DeepSeek V4/DSpark runtime for DGX Spark GB10 (SM121)"
 LABEL org.opencontainers.image.licenses="MIT AND Apache-2.0"
 LABEL org.opencontainers.image.version="${VLLM_VERSION}"
 LABEL org.opencontainers.image.revision="${VLLM_COMMIT}"
+LABEL io.dspark.flashinfer.dsv4-sm120-commit="${FLASHINFER_DSV4_SM120_COMMIT}"
 
 COPY LICENSE NOTICE CREDITS.md /usr/share/licenses/dspark-vllm-gx10/
 COPY LICENSES/Apache-2.0.txt \
   /usr/share/licenses/dspark-vllm-gx10/Apache-2.0.txt
 COPY upstream.lock /usr/share/dspark-vllm-gx10/upstream.lock
+COPY patches/flashinfer/0001-sm120-dsv4-192-256-topk.patch \
+  /usr/share/dspark-vllm-gx10/flashinfer-sm120.patch
+
+# vLLM 0.27.1 pins FlashInfer 0.6.16.post3, whose SM120 DSV4 decode module
+# lacks 192/256-top-k kernels. Apply the exact upstream PR #4380 delta without
+# replacing the package or its ABI-pinned dependencies. Remove only its stale
+# sparse-MLA AOT module so the patched source JIT-compiles into the mounted
+# FlashInfer workspace on first candidate boot.
+RUN set -eux; \
+    actual_version="$(python3 -c 'from importlib.metadata import version; print(version("flashinfer-python"))')"; \
+    test "$actual_version" = "$FLASHINFER_VERSION"; \
+    actual_sha="$(sha256sum /usr/share/dspark-vllm-gx10/flashinfer-sm120.patch | awk '{print $1}')"; \
+    test "$actual_sha" = "$FLASHINFER_DSV4_SM120_PATCH_SHA256"; \
+    site_packages="$(python3 -c 'import site; print(site.getsitepackages()[0])')"; \
+    patch --batch --forward -p1 -d "$site_packages" \
+      < /usr/share/dspark-vllm-gx10/flashinfer-sm120.patch; \
+    rm -rf "$site_packages/flashinfer_jit_cache/jit_cache/sparse_mla_sm120"; \
+    python3 -c 'from flashinfer.mla._sparse_mla_sm120 import _DECODE_DSV4_DISPATCH; assert (32, 192) in _DECODE_DSV4_DISPATCH; assert (32, 256) in _DECODE_DSV4_DISPATCH'; \
+    test ! -e "$site_packages/flashinfer_jit_cache/jit_cache/sparse_mla_sm120/sparse_mla_sm120.so"
 
 # vLLM 0.27.1 owns the PyTorch, FlashInfer, CUTLASS DSL, and TVM-FFI pins.
-# Reinstalling older downstream packages here can replace SM121 kernels or
-# break ABI compatibility, so this layer intentionally adds only metadata.
+# The narrow source overlay above retains those package pins and only extends
+# the missing SM120 sparse-MLA shape matrix.
 ENV CUTE_DSL_ARCH=sm_121a \
     FLASHINFER_CUDA_ARCH_LIST=12.1a \
     TORCH_CUDA_ARCH_LIST=12.1a

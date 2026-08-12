@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-IMAGE="${CANDIDATE_IMAGE:-dspark-vllm-gb10:v0.27.1-gb10-rc3}"
+IMAGE="${CANDIDATE_IMAGE:-dspark-vllm-gb10:v0.27.1-gb10-rc4}"
 MIN_FREE_GIB="${MIN_FREE_GIB:-120}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BUILD_RECORD="${BUILD_RECORD:-$ROOT/.private/builds/$STAMP}"
@@ -51,6 +51,7 @@ else
   echo "clean git-archive deployment; see .source-commit" >"$BUILD_RECORD/source-status.txt"
 fi
 sha256sum "$ROOT"/runtime/patches/vllm/*.patch >"$BUILD_RECORD/patch-sha256.txt"
+sha256sum "$ROOT"/runtime/patches/flashinfer/*.patch >>"$BUILD_RECORD/patch-sha256.txt"
 cp "$ROOT/runtime/upstream.lock" "$BUILD_RECORD/upstream.lock"
 FINAL_IMAGE="$IMAGE" "$ROOT/runtime/scripts/build-image.sh"
 docker image inspect "$IMAGE" >"$BUILD_RECORD/image-inspect.json"
