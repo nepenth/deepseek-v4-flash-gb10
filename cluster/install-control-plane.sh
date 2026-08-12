@@ -32,6 +32,7 @@ for path in \
   "$MODELS_DIR/vllm-switch" \
   "$MODELS_DIR/vllm-profile-runner" \
   "$MODELS_DIR/deepseek-v4-flash-0731-dspark.conf" \
+  "$MODELS_DIR/deepseek-v4-flash-0731-dspark-1m-baseline.conf" \
   "$MODELS_DIR/deepseek-v4-flash-0731-v0271-canary.conf"; do
   [[ -e "$path" ]] && cp -a "$path" "$BACKUP_DIR/"
 done
@@ -44,6 +45,8 @@ install -m 0755 "$ROOT/cluster/vllm-profile-runner" "$MODELS_DIR/vllm-profile-ru
 install -m 0600 "$PRIVATE_SWITCH_CONFIG" "$MODELS_DIR/vllm-switch.env"
 install -m 0644 "$ROOT/cluster/profiles/deepseek-v4-flash-0731-dspark.conf" \
   "$MODELS_DIR/deepseek-v4-flash-0731-dspark.conf"
+install -m 0644 "$ROOT/cluster/profiles/deepseek-v4-flash-0731-dspark-1m-baseline.conf" \
+  "$MODELS_DIR/deepseek-v4-flash-0731-dspark-1m-baseline.conf"
 install -m 0644 "$ROOT/cluster/profiles/deepseek-v4-flash-0731-v0271-canary.conf" \
   "$MODELS_DIR/deepseek-v4-flash-0731-v0271-canary.conf"
 sudo ln -sfn "$MODELS_DIR/vllm-switch" /usr/local/bin/vllm-switch

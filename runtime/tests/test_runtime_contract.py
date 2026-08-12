@@ -190,9 +190,12 @@ class RuntimeContractTests(unittest.TestCase):
 
     def test_deploy_warns_about_stale_installed_control_plane(self) -> None:
         deploy = (ROOT / "cluster/deploy-to-sparks.sh").read_text()
+        installer = (ROOT / "cluster/install-control-plane.sh").read_text()
         self.assertIn("installed_control_plane_stale", deploy)
         self.assertIn("install-control-plane.sh --install", deploy)
         self.assertIn("does not install", deploy)
+        self.assertIn("deepseek-v4-flash-0731-dspark-1m-baseline.conf", deploy)
+        self.assertIn("deepseek-v4-flash-0731-dspark-1m-baseline.conf", installer)
 
     def test_tracked_cluster_examples_do_not_contain_private_addresses(self) -> None:
         tracked = [

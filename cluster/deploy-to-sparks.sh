@@ -102,6 +102,7 @@ for pair in \
   'vllm-switch:cluster/vllm-switch' \
   'vllm-profile-runner:cluster/vllm-profile-runner' \
   'deepseek-v4-flash-0731-dspark.conf:cluster/profiles/deepseek-v4-flash-0731-dspark.conf' \
+  'deepseek-v4-flash-0731-dspark-1m-baseline.conf:cluster/profiles/deepseek-v4-flash-0731-dspark-1m-baseline.conf' \
   'deepseek-v4-flash-0731-v0271-canary.conf:cluster/profiles/deepseek-v4-flash-0731-v0271-canary.conf'; do
   installed="${pair%%:*}"
   staged="${pair#*:}"
