@@ -44,6 +44,13 @@ The current series contains:
 - a direct FlashInfer SM120 sparse-MLA runner path with graph-stable split-K
   scratch for the <=64-token DeepSeek V4 decode and prefill dispatch.
 
+The FlashInfer 0.6.16 DSV4 small-decode specialization has a hard 64-token KV
+page requirement. The GB10 canary therefore fixes `KV_BLOCK_SIZE=64` on both
+ranks. Although the upstream vLLM SM120 backend advertises 256-token pages,
+those pages fall into FlashInfer's generic path and reject a 30-token mHC
+warmup batch. The profile-level override prevents a stale private environment
+from silently restoring the incompatible 256-token geometry.
+
 The broad v0.25 overlay under `runtime/overlay/` remains for history and
 attribution. It is not copied into v0.27.1.
 

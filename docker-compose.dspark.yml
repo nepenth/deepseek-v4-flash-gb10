@@ -89,6 +89,7 @@ services:
       MTP_NUM_TOKENS: "${MTP_NUM_TOKENS:-5}"
       DEFAULT_THINKING: "${DEFAULT_THINKING:-low}"
       KV_CACHE_DTYPE: "${KV_CACHE_DTYPE:-fp8_ds_mla}"
+      KV_BLOCK_SIZE: "${KV_BLOCK_SIZE:-256}"
       MOE_BACKEND: "${MOE_BACKEND:-flashinfer_b12x}"
       # Mode 2 guards every DSv4 cache group against same-step prefix hits
       # before the producing GPU forward has written KV.
@@ -129,7 +130,7 @@ services:
         --tensor-parallel-size 2
         --pipeline-parallel-size 1
         --kv-cache-dtype $${KV_CACHE_DTYPE:-fp8_ds_mla}
-        --block-size 256
+        --block-size $${KV_BLOCK_SIZE:-256}
         --max-model-len ${MAX_MODEL_LEN:-1048576}
         --max-num-seqs ${MAX_NUM_SEQS:-6}
         --max-num-batched-tokens ${MAX_NUM_BATCHED_TOKENS:-8192}

@@ -28,7 +28,8 @@ image digest. Preserve complete build logs and verify:
 4. All 48 checkpoint shards load on TP=2 without scale-layout assertions,
    illegal memory access, mid-request JIT, or unsupported-kernel fallback.
 5. The selected paths are DSpark K=5, `fp8_ds_mla`, native SM121 sparse MLA,
-   and `deep_gemm` MXFP4 MoE for the v0.27.1-line candidate.
+   `KV_BLOCK_SIZE=64` for FlashInfer's small-decode kernel, and `deep_gemm`
+   MXFP4 MoE for the v0.27.1-line candidate.
 
 Build three images for diagnosis and attribution:
 

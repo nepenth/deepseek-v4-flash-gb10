@@ -66,6 +66,7 @@ class RuntimeContractTests(unittest.TestCase):
     def test_compose_uses_canonical_sparse_mla_dtype(self) -> None:
         compose = (ROOT / "docker-compose.dspark.yml").read_text()
         self.assertIn("KV_CACHE_DTYPE:-fp8_ds_mla", compose)
+        self.assertIn("KV_BLOCK_SIZE:-256", compose)
         self.assertNotIn("--kv-cache-dtype nvfp4_ds_mla", compose)
         self.assertIn("VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT:-2", compose)
         self.assertIn(
@@ -94,6 +95,7 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("GPU_MEMORY_UTILIZATION_TEXT=0.78", example)
         self.assertIn("MTP_NUM_TOKENS=5", example)
         self.assertIn("KV_CACHE_DTYPE=fp8_ds_mla", example)
+        self.assertIn("KV_BLOCK_SIZE=64", example)
         self.assertIn("MOE_BACKEND=deep_gemm", example)
         self.assertIn("v0.27.1-gb10-rc2", profile)
         self.assertIn("v0.27.1-gb10-rc2", example)
@@ -102,7 +104,11 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("MOE_BACKEND=\"$MOE_BACKEND\"", start)
         self.assertIn("MOE_BACKEND='%s'", start)
         self.assertIn("VLLM_SWITCH_IMAGE=$DOCKER_IMAGE", profile)
+        self.assertIn("VLLM_SWITCH_KV_BLOCK_SIZE=64", profile)
         self.assertIn('DSPARK_VLLM_IMAGE="$VLLM_SWITCH_IMAGE"', start)
+        self.assertIn('KV_BLOCK_SIZE="$VLLM_SWITCH_KV_BLOCK_SIZE"', start)
+        self.assertIn("requires KV_BLOCK_SIZE=64", start)
+        self.assertIn("KV_BLOCK_SIZE=\"$KV_BLOCK_SIZE\"", start)
         self.assertIn("DSPARK_VLLM_IMAGE=\"$DSPARK_VLLM_IMAGE\"", start)
         self.assertIn("DSPARK_MODEL_HOST", compose)
 

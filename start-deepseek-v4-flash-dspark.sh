@@ -97,8 +97,27 @@ if [ "$KV_CACHE_DTYPE" != "fp8_ds_mla" ]; then
   echo "KV_CACHE_DTYPE must be fp8_ds_mla for the v0.27.1 SM121 sparse-MLA runtime (got: $KV_CACHE_DTYPE)" >&2
   exit 2
 fi
+KV_BLOCK_SIZE="${KV_BLOCK_SIZE:-256}"
+if [ -n "${VLLM_SWITCH_KV_BLOCK_SIZE:-}" ]; then
+  KV_BLOCK_SIZE="$VLLM_SWITCH_KV_BLOCK_SIZE"
+fi
+if ! [[ "$KV_BLOCK_SIZE" =~ ^[0-9]+$ ]]; then
+  echo "KV_BLOCK_SIZE must be a positive integer (got: $KV_BLOCK_SIZE)" >&2
+  exit 2
+fi
+if (( 10#$KV_BLOCK_SIZE < 1 )); then
+  echo "KV_BLOCK_SIZE must be a positive integer (got: $KV_BLOCK_SIZE)" >&2
+  exit 2
+fi
+# FlashInfer 0.6.16's DSV4 <=64-token SM120 decoder is instantiated for
+# 64-token KV pages only. Keep this candidate guard tied to the profile
+# override so generic/legacy Compose users retain their own page geometry.
+if [ -n "${VLLM_SWITCH_KV_BLOCK_SIZE:-}" ] && [ "$KV_BLOCK_SIZE" != "64" ]; then
+  echo "The SM120 DeepSeek V4 FlashInfer candidate requires KV_BLOCK_SIZE=64 (got: $KV_BLOCK_SIZE)" >&2
+  exit 2
+fi
 MOE_BACKEND="${MOE_BACKEND:-flashinfer_b12x}"
-export KV_CACHE_DTYPE MOE_BACKEND
+export KV_CACHE_DTYPE KV_BLOCK_SIZE MOE_BACKEND
 
 # Vision mode flag selects 0731 GPU util (and whether the VL sidecar starts).
 #   ENABLE_VL_SIDECAR=1 → vision coexist → GPU_MEMORY_UTILIZATION_VISION (default 0.80)
@@ -371,7 +390,7 @@ resolve_nccl_gid_indexes() {
 
 remote_nccl_env() {
   # Rebuild each call so GID resolve after early init is visible on the worker.
-  printf "NCCL_IB_HCA='%s' NCCL_SOCKET_IFNAME='%s' TP_SOCKET_IFNAME='%s' GLOO_SOCKET_IFNAME='%s' NCCL_IB_GID_INDEX='%s' VLLM_HOST='%s' VLLM_PORT='%s' KV_CACHE_DTYPE='%s' MOE_BACKEND='%s' DSPARK_VLLM_IMAGE='%s' DSPARK_MODEL_HOST='%s' DSPARK_MODEL_CONTAINER='%s'" \
+  printf "NCCL_IB_HCA='%s' NCCL_SOCKET_IFNAME='%s' TP_SOCKET_IFNAME='%s' GLOO_SOCKET_IFNAME='%s' NCCL_IB_GID_INDEX='%s' VLLM_HOST='%s' VLLM_PORT='%s' KV_CACHE_DTYPE='%s' KV_BLOCK_SIZE='%s' MOE_BACKEND='%s' DSPARK_VLLM_IMAGE='%s' DSPARK_MODEL_HOST='%s' DSPARK_MODEL_CONTAINER='%s'" \
     "$WORKER_NCCL_IB_HCA" \
     "$WORKER_NCCL_SOCKET_IFNAME" \
     "$WORKER_TP_SOCKET_IFNAME" \
@@ -380,6 +399,7 @@ remote_nccl_env() {
     "$VLLM_HOST" \
     "$VLLM_PORT" \
     "$KV_CACHE_DTYPE" \
+    "$KV_BLOCK_SIZE" \
     "$MOE_BACKEND" \
     "$DSPARK_VLLM_IMAGE" \
     "$WORKER_DSPARK_MODEL_HOST" \
@@ -397,6 +417,7 @@ compose_base() {
     VLLM_HOST="$VLLM_HOST" \
     VLLM_PORT="$VLLM_PORT" \
     KV_CACHE_DTYPE="$KV_CACHE_DTYPE" \
+    KV_BLOCK_SIZE="$KV_BLOCK_SIZE" \
     MOE_BACKEND="$MOE_BACKEND" \
     DSPARK_VLLM_IMAGE="$DSPARK_VLLM_IMAGE" \
     VLLM_HOST_IP="$VLLM_HOST_IP" \
@@ -486,6 +507,7 @@ print_resolved_profile() {
   echo "  gpu memory utilization: ${GPU_MEMORY_UTILIZATION:-0.80} (text default ${GPU_MEMORY_UTILIZATION_TEXT:-0.835} / vision default ${GPU_MEMORY_UTILIZATION_VISION:-0.80})"
   echo "  mtp speculative tokens: ${MTP_NUM_TOKENS:-5} (dspark_block_size min is 5)"
   echo "  KV cache dtype: $KV_CACHE_DTYPE"
+  echo "  KV page size: $KV_BLOCK_SIZE"
   echo "  default thinking: $DEFAULT_THINKING (off/low/high/max)"
   echo "  cudagraph capture size: $(( ${MAX_NUM_SEQS:-6} * (${MTP_NUM_TOKENS:-5} + 1) ))"
   echo "  API bind: $VLLM_HOST:$VLLM_PORT"
