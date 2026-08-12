@@ -94,6 +94,12 @@ if [[ "$phase" == "patched" ]]; then
   require_text 'VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT' vllm/envs.py
   require_text '_ghost_block_guard_enabled' \
     vllm/v1/core/single_type_kv_cache_manager.py
+  require_text '_SparseMLAPagedAttentionRunner' \
+    vllm/models/deepseek_v4/nvidia/flashinfer_sparse.py
+  require_text '_reserve_sm120_decode_workspace' \
+    vllm/models/deepseek_v4/nvidia/flashinfer_sparse.py
+  require_text 'mid_out=mid_out' \
+    vllm/models/deepseek_v4/nvidia/flashinfer_sparse.py
   git -C "$source_dir" diff --check
 fi
 

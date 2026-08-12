@@ -41,6 +41,8 @@ The current series contains:
   scheduling, dependency-pin, and DeepSeek V4 parser fixes;
 - focused mixed-batch drafter metadata and token-bound guards from the
   hardware-validated jasl SM121 preview branch.
+- a direct FlashInfer SM120 sparse-MLA runner path with graph-stable split-K
+  scratch for the <=64-token DeepSeek V4 decode and prefill dispatch.
 
 The broad v0.25 overlay under `runtime/overlay/` remains for history and
 attribution. It is not copied into v0.27.1.

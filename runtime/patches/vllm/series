@@ -33,3 +33,4 @@
 0024-cuda-flash-attn-submodules.patch
 0025-skip-flash-attn-fa3-without-hopper-target.patch
 0026-shallow-triton-kernels-fetch.patch
+0027-dsv4-sm120-direct-small-decode.patch

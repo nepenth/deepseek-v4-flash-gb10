@@ -33,7 +33,8 @@ image digest. Preserve complete build logs and verify:
 Build three images for diagnosis and attribution:
 
 - `boot-minimal`: v0.27.1 plus only the DeepGEMM build fix;
-- `candidate`: the complete 23-patch series;
+- `candidate`: the complete 27-patch series, including the FlashInfer SM120
+  small-batch sparse-MLA dispatch repair;
 - `reference`: the previously working Anemll/NVIDIA-derived image, clearly
   labeled as a different vLLM/dependency baseline.
 

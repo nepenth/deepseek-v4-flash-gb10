@@ -44,7 +44,7 @@ class RuntimeContractTests(unittest.TestCase):
             for line in (RUNTIME / "patches/vllm/series").read_text().splitlines()
             if line.strip() and not line.startswith("#")
         ]
-        self.assertEqual(len(entries), 26)
+        self.assertEqual(len(entries), 27)
         self.assertEqual(len(entries), len(set(entries)))
         for number, entry in enumerate(entries, 1):
             self.assertTrue(entry.startswith(f"{number:04d}-"), entry)
@@ -95,11 +95,22 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("MTP_NUM_TOKENS=5", example)
         self.assertIn("KV_CACHE_DTYPE=fp8_ds_mla", example)
         self.assertIn("MOE_BACKEND=deep_gemm", example)
+        self.assertIn("v0.27.1-gb10-rc2", profile)
+        self.assertIn("v0.27.1-gb10-rc2", example)
         self.assertIn('MOE_BACKEND: "${MOE_BACKEND:-flashinfer_b12x}"', compose)
         self.assertIn("--moe-backend $${MOE_BACKEND:-flashinfer_b12x}", compose)
         self.assertIn("MOE_BACKEND=\"$MOE_BACKEND\"", start)
         self.assertIn("MOE_BACKEND='%s'", start)
         self.assertIn("DSPARK_MODEL_HOST", compose)
+
+    def test_sm120_sparse_mla_small_decode_patch_is_included(self) -> None:
+        patch = (
+            RUNTIME / "patches/vllm/0027-dsv4-sm120-direct-small-decode.patch"
+        ).read_text()
+        self.assertIn("_SparseMLAPagedAttentionRunner", patch)
+        self.assertIn("_reserve_sm120_decode_workspace", patch)
+        self.assertIn("mid_out=mid_out", patch)
+        self.assertIn("_FLASHINFER_SM120_DECODE_MAX_TOKENS = 64", patch)
 
     def test_startup_fails_when_a_rank_exits_before_readiness(self) -> None:
         start = (ROOT / "start-deepseek-v4-flash-dspark.sh").read_text()

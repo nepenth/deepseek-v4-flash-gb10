@@ -1,0 +1,232 @@
+From 827f8f5a6d30ec0450f21b8928a0d19d5f2cb7ef Mon Sep 17 00:00:00 2001
+From: Chris <16943149+nepenth@users.noreply.github.com>
+Date: Tue, 11 Aug 2026 22:44:00 -0400
+Subject: [PATCH 27/27] Fix SM120 DeepSeek V4 sparse MLA small-batch dispatch
+
+FlashInfer 0.6.16's public DeepSeek V4 sparse-MLA wrapper does not provide
+the split-K `mid_out` and `mid_lse` buffers required when the SM120 backend
+dispatches a query with 64 or fewer rows to its decode kernel. The kernel then
+rejects mHC warmup and short prompt/decode batches with `num_tokens > 64`.
+
+Create FlashInfer's sparse SM120 runner once per attention layer and drive it
+directly. Reserve its graph-stable scratch through vLLM's workspace manager
+during warmup and supply it for the small-row decode path. The same helper is
+used for short prefill chunks, which select the same kernel. This retains the
+existing `fp8_ds_mla` packed cache and DeepSeek V4 sparse-index metadata.
+---
+ .../models/deepseek_v4/nvidia/flashinfer_sparse.py | 146 +++++++++++++++++--
+ 1 file changed, 119 insertions(+), 27 deletions(-)
+
+diff --git a/vllm/models/deepseek_v4/nvidia/flashinfer_sparse.py b/vllm/models/deepseek_v4/nvidia/flashinfer_sparse.py
+index d8742e6..cf0f923 100644
+--- a/vllm/models/deepseek_v4/nvidia/flashinfer_sparse.py
++++ b/vllm/models/deepseek_v4/nvidia/flashinfer_sparse.py
+@@ -23,14 +23,17 @@ from vllm.models.deepseek_v4.sparse_mla import (
+ )
+ from vllm.platforms import current_platform
+ from vllm.platforms.interface import DeviceCapability
+-from vllm.utils.flashinfer import flashinfer_trtllm_batch_decode_sparse_mla_dsv4
+ from vllm.v1.attention.backend import MultipleOf
++from vllm.v1.worker.workspace import current_workspace_manager
+ 
+ if TYPE_CHECKING:
+     from vllm.v1.attention.backends.mla.sparse_swa import DeepseekSparseSWAMetadata
+ 
+ _FLASHINFER_DSV4_WORKSPACE_BUFFER_SIZE = 128 * 1024 * 1024
+ _flashinfer_dsv4_workspace_by_device: dict[torch.device, torch.Tensor] = {}
++_FLASHINFER_SM120_DECODE_MAX_TOKENS = 64
++_FLASHINFER_SM120_DECODE_SPLIT_TILE = 64
++_C128A_TOPK_ALIGNMENT = 128
+ 
+ 
+ def _get_flashinfer_dsv4_workspace(device: torch.device) -> torch.Tensor:
+@@ -45,6 +48,26 @@ def _get_flashinfer_dsv4_workspace(device: torch.device) -> torch.Tensor:
+     return workspace
+ 
+ 
++def _ceil_div(value: int, divisor: int) -> int:
++    return (int(value) + int(divisor) - 1) // int(divisor)
++
++
++def _get_flashinfer_sm120_decode_scratch(
++    num_tokens: int,
++    num_heads: int,
++    head_dim: int,
++    swa_topk: int,
++    extra_topk: int,
++) -> tuple[torch.Tensor, torch.Tensor]:
++    """Reserve split-K scratch required by FlashInfer's <=64-token decoder."""
++    num_splits = _ceil_div(swa_topk, _FLASHINFER_SM120_DECODE_SPLIT_TILE)
++    num_splits += _ceil_div(extra_topk, _FLASHINFER_SM120_DECODE_SPLIT_TILE)
++    return current_workspace_manager().get_simultaneous(
++        ((num_tokens, num_heads, num_splits, head_dim), torch.bfloat16),
++        ((num_tokens, num_heads, num_splits), torch.float32),
++    )
++
++
+ def _packed_block_span(pool: torch.Tensor) -> int:
+     """Per-block stride of ``pool`` in tokens (``stride(0)//stride(-2)``): ==
+     block_size for unpacked KV, larger when packed (#44577). Raises if not
+@@ -580,6 +603,15 @@ class DeepseekV4FlashInferSM120Attention(DeepseekV4Attention):
+                 "FLASHINFER_MLA_SPARSE_DSV4 on SM120 requires FlashInfer's "
+                 "sparse MLA decode API."
+             )
++        from flashinfer.mla._sparse_mla_sm120 import _SparseMLAPagedAttentionRunner
++
++        self._sm120_runner = _SparseMLAPagedAttentionRunner(
++            max_num_tokens=self.max_num_batched_tokens,
++            max_num_heads=self.padded_heads,
++            d_v=self.head_dim,
++            kv_scale_format="auto",
++            device=torch.device("cuda", torch.accelerator.current_device_index()),
++        )
+         self._einsum_recipe, self._tma_aligned_scales = compute_fp8_einsum_recipe()
+         # Per-tensor FP8 cache path scales.
+         if self.kv_cache_torch_dtype != torch.float8_e4m3fn:
+@@ -609,6 +641,70 @@ class DeepseekV4FlashInferSM120Attention(DeepseekV4Attention):
+         self._get_workspace(
+             torch.device("cuda", torch.accelerator.current_device_index())
+         )
++        self._reserve_sm120_decode_workspace()
++
++    def _reserve_sm120_decode_workspace(self) -> None:
++        if self.compress_ratio <= 1:
++            extra_topk = 0
++        elif self.compress_ratio == 4:
++            assert self.topk_indices_buffer is not None
++            extra_topk = self.topk_indices_buffer.shape[-1]
++        elif self.compress_ratio == 128:
++            extra_topk = _ceil_div(
++                _ceil_div(self.max_model_len, self.compress_ratio),
++                _C128A_TOPK_ALIGNMENT,
++            ) * _C128A_TOPK_ALIGNMENT
++        else:
++            raise ValueError(
++                f"Unsupported compress_ratio={self.compress_ratio}; expected 1, 4, or 128."
++            )
++        _get_flashinfer_sm120_decode_scratch(
++            min(self.max_num_batched_tokens, _FLASHINFER_SM120_DECODE_MAX_TOKENS),
++            self.padded_heads,
++            self.head_dim,
++            self.window_size,
++            extra_topk,
++        )
++
++    def _run_sm120_sparse_mla(
++        self,
++        query: torch.Tensor,
++        swa_cache: torch.Tensor,
++        swa_indices: torch.Tensor,
++        output: torch.Tensor,
++        swa_lens: torch.Tensor,
++        extra_cache: torch.Tensor | None,
++        extra_indices: torch.Tensor | None,
++        extra_lens: torch.Tensor | None,
++    ) -> None:
++        mid_out = None
++        mid_lse = None
++        # FlashInfer's public DSV4 wrapper omits these buffers for the small
++        # decode path. The low-level runner requires them when <=64 rows select
++        # sparse_mla_sm120_decode_dsv4, including mHC warmup and short prompts.
++        if query.shape[0] <= _FLASHINFER_SM120_DECODE_MAX_TOKENS:
++            extra_topk = extra_indices.shape[-1] if extra_indices is not None else 0
++            mid_out, mid_lse = _get_flashinfer_sm120_decode_scratch(
++                query.shape[0],
++                output.shape[1],
++                output.shape[-1],
++                swa_indices.shape[-1],
++                extra_topk,
++            )
++        self._sm120_runner.run(
++            query,
++            swa_cache,
++            swa_indices,
++            output,
++            self.scale,
++            topk_length=swa_lens,
++            attn_sink=self.attn_sink,
++            extra_kv_cache=extra_cache,
++            extra_indices=extra_indices,
++            extra_topk_length=extra_lens,
++            mid_out=mid_out,
++            mid_lse=mid_lse,
++        )
+ 
+     def _forward_sparse_impl(
+         self,
+@@ -755,6 +851,9 @@ class DeepseekV4FlashInferSM120Attention(DeepseekV4Attention):
+                 extra_sparse_indices = attn_metadata.c128a_global_decode_topk_indices
+                 extra_sparse_lengths = attn_metadata.c128a_decode_topk_lens
+ 
++            if extra_sparse_indices is not None:
++                extra_sparse_indices = extra_sparse_indices.contiguous()
++
+         swa_indices = swa_metadata.decode_swa_indices
+         swa_lens = swa_metadata.decode_swa_lens
+         assert swa_indices is not None
+@@ -766,19 +865,15 @@ class DeepseekV4FlashInferSM120Attention(DeepseekV4Attention):
+             raise RuntimeError(
+                 "Compressed sparse MLA decode requires compressed sparse indices."
+             )
+-        flashinfer_trtllm_batch_decode_sparse_mla_dsv4(
+-            query=q,
+-            swa_kv_cache=swa_cache,
+-            workspace_buffer=self._get_workspace(q.device),
+-            sparse_indices=swa_indices,
+-            compressed_kv_cache=extra_cache,
+-            out=output,
+-            bmm1_scale=self.scale,
+-            sinks=self.attn_sink,
+-            kv_layout="NHD",
+-            swa_topk_lens=swa_lens,
+-            extra_sparse_indices=extra_sparse_indices,
+-            extra_sparse_topk_lens=extra_sparse_lengths,
++        self._run_sm120_sparse_mla(
++            q,
++            swa_cache,
++            swa_indices,
++            output,
++            swa_lens,
++            extra_cache,
++            extra_sparse_indices,
++            extra_sparse_lengths,
+         )
+ 
+     def _forward_prefill(
+@@ -840,6 +935,7 @@ class DeepseekV4FlashInferSM120Attention(DeepseekV4Attention):
+                     output_buffers=self._global_topk_output_buffers(local_topk_indices),
+                 )
+             )
++            extra_sparse_indices = extra_sparse_indices.contiguous()
+ 
+         assert swa_metadata.prefill_swa_indices is not None
+         assert swa_metadata.prefill_swa_lens is not None
+@@ -886,17 +982,13 @@ class DeepseekV4FlashInferSM120Attention(DeepseekV4Attention):
+                 raise RuntimeError(
+                     "Compressed sparse MLA prefill requires compressed sparse indices."
+                 )
+-            flashinfer_trtllm_batch_decode_sparse_mla_dsv4(
+-                query=q_chunk,
+-                swa_kv_cache=swa_kv_paged,
+-                workspace_buffer=self._get_workspace(q.device),
+-                sparse_indices=swa_indices_chunk,
+-                compressed_kv_cache=extra_kv_paged,
+-                out=output[query_start:query_end],
+-                bmm1_scale=self.scale,
+-                sinks=self.attn_sink,
+-                kv_layout="NHD",
+-                swa_topk_lens=swa_lens_chunk,
+-                extra_sparse_indices=extra_sparse_indices_chunk,
+-                extra_sparse_topk_lens=extra_sparse_lengths_chunk,
++            self._run_sm120_sparse_mla(
++                q_chunk,
++                swa_kv_paged,
++                swa_indices_chunk,
++                output[query_start:query_end],
++                swa_lens_chunk,
++                extra_kv_paged,
++                extra_sparse_indices_chunk,
++                extra_sparse_lengths_chunk,
+             )
+-- 
+2.43.0
