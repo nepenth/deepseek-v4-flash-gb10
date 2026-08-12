@@ -52,10 +52,14 @@ contains the production launch markers. It does not restart the service.
 
 ## Candidate lifecycle
 
-The first-light profile deliberately mirrors the current production resource
-envelope and uses a canary-only served-model name. Its restart policy is `no`.
-If readiness fails, the switch captures both-rank state before activating the
-production rollback profile.
+The candidate uses a canary-only served-model name and restart policy `no`.
+The qualified rc7 profile runs at the controlled 1M A/B envelope. Before
+switching to it, activate the matching Stage-C 1M baseline so the switch's
+recorded-current-profile rollback returns to a configuration-equivalent arm.
+If readiness fails, the switch captures both-rank state before activating that
+recorded rollback profile. See
+[GB10_DSV4_HANDOFF_2026-08-12.md](GB10_DSV4_HANDOFF_2026-08-12.md) for the
+validated transition and operating constraints.
 
 ```bash
 vllm-switch deepseek-v4-flash-0731-v0271-canary

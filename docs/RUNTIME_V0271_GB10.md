@@ -105,8 +105,12 @@ The patch series adds `VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT`:
 - `1`: upstream PR #42359 semantics, gated to EAGLE-marked groups;
 - `0`: disable for controlled diagnosis only.
 
-The image has been built once on GB10, but the complete two-node qualification
-suite remains required before publication.
-The source and static contracts do not replace
-the long-context, acceptance, and throughput gates in
-`docs/NVFP4_DS_MLA.md`.
+The rc7 image has completed two-node cold-cache boot, quick API/stability
+qualification, compatible latency-aware A/B matrices, and an actual 900K
+three-needle retrieval proof at the controlled 1M envelope. The active
+profile, exact results, remaining caveats, and next execution plan are in
+[GB10_DSV4_HANDOFF_2026-08-12.md](GB10_DSV4_HANDOFF_2026-08-12.md).
+
+Source and static contracts still do not replace future long-context,
+acceptance, cache-capacity, and throughput gates for any change to the image,
+patch series, checkpoint, or cache dtype.
