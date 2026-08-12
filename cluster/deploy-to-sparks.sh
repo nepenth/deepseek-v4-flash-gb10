@@ -87,4 +87,32 @@ private_sha="$(sha256sum "$PRIVATE_DIR/deepseek-v4-flash-0731-v0271-canary.env" 
 remote_private_sha="$(ssh -F /dev/null "$HEAD_SSH" \
   "sha256sum '$REMOTE_DIR/cluster/environments/deepseek-v4-flash-0731-v0271-canary.env' | cut -d' ' -f1")"
 [[ "$private_sha" == "$remote_private_sha" ]] || { echo "Private canary environment hash mismatch on head" >&2; exit 1; }
+
+# Staging this repository is deliberately separate from installing the
+# control-plane copies that the system `vllm-switch` actually reads. Surface a
+# stale installed copy so a profile/image-tag change cannot be silently tested
+# from the prior profile.
+installed_control_plane_stale="$(
+  ssh -F /dev/null -o BatchMode=yes "$HEAD_SSH" bash -s -- "$REMOTE_DIR" <<'REMOTE'
+set -euo pipefail
+remote_dir="$1"
+source "$remote_dir/cluster/environments/vllm-switch.env"
+models_dir="${MODELS_DIR:-$HOME/vllm-models}"
+for pair in \
+  'vllm-switch:cluster/vllm-switch' \
+  'vllm-profile-runner:cluster/vllm-profile-runner' \
+  'deepseek-v4-flash-0731-dspark.conf:cluster/profiles/deepseek-v4-flash-0731-dspark.conf' \
+  'deepseek-v4-flash-0731-v0271-canary.conf:cluster/profiles/deepseek-v4-flash-0731-v0271-canary.conf'; do
+  installed="${pair%%:*}"
+  staged="${pair#*:}"
+  cmp -s "$remote_dir/$staged" "$models_dir/$installed" || printf '%s\n' "$installed"
+done
+REMOTE
+)"
+if [[ -n "$installed_control_plane_stale" ]]; then
+  echo "Staged control-plane files differ from the installed vllm-switch copies:"
+  sed 's/^/  /' <<<"$installed_control_plane_stale"
+  echo "Run on the head before vllm-switch validate or switch:"
+  echo "  cd '$REMOTE_DIR' && ./cluster/install-control-plane.sh --install"
+fi
 echo "Both node deployment manifests match. The live service was not changed."

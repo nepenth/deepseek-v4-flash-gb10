@@ -40,6 +40,13 @@ ssh HEAD 'vllm-switch status'
 ssh HEAD 'vllm-switch validate deepseek-v4-flash-0731-v0271-canary'
 ```
 
+`deploy-to-sparks.sh --apply` only stages the repository. Whenever the deploy
+changes `cluster/vllm-switch`, `cluster/vllm-profile-runner`, or either
+profile, run `install-control-plane.sh --install` again before `validate` or
+`switch`; those commands read the installed copies in `~/vllm-models`. The
+deploy script reports a stale installed copy but deliberately does not install
+it or change the service on its own.
+
 `adopt` only writes profile state after verifying that the active systemd unit
 contains the production launch markers. It does not restart the service.
 

@@ -118,6 +118,12 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("ps --status exited -q vllm-dspark", start)
         self.assertIn("A vLLM rank exited before the API became ready.", start)
 
+    def test_deploy_warns_about_stale_installed_control_plane(self) -> None:
+        deploy = (ROOT / "cluster/deploy-to-sparks.sh").read_text()
+        self.assertIn("installed_control_plane_stale", deploy)
+        self.assertIn("install-control-plane.sh --install", deploy)
+        self.assertIn("does not install", deploy)
+
     def test_tracked_cluster_examples_do_not_contain_private_addresses(self) -> None:
         tracked = [
             path
