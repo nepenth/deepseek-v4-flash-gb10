@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-IMAGE="${CANDIDATE_IMAGE:-dspark-vllm-gb10:v0.27.1-gb10-rc6}"
+IMAGE="${CANDIDATE_IMAGE:-dspark-vllm-gb10:v0.27.1-gb10-rc7}"
 MIN_FREE_GIB="${MIN_FREE_GIB:-120}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BUILD_RECORD="${BUILD_RECORD:-$ROOT/.private/builds/$STAMP}"
