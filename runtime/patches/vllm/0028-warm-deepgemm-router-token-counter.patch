@@ -5,19 +5,21 @@ Subject: [PATCH 28/28] Warm DeepGEMM routed-expert token counters
 
 DeepSeek V4 Flash uses a top-k-6 router. Its DeepGEMM modular MoE path
 invokes the Triton `count_expert_num_tokens` utility, which is specialized by
-the flattened router-ID block size and whether tensor-parallel expert mapping
-is active. Kernel warmup covered the router GEMM but not that utility, so a
-first inference shape could still JIT under traffic.
+the flattened router-ID block size, Triton's runtime scalar divisibility
+descriptor, and whether tensor-parallel expert mapping is active. Kernel
+warmup covered the router GEMM but not that utility, so a first inference
+shape could still JIT under traffic.
 
 Inspect the loaded RoutedExperts modules and only target active DeepGEMM
 implementations. For each unique local expert/top-k/map configuration, call
 the counter on one shape for every reachable power-of-two block size through
-1024. This avoids model dummy forwards and uses the real expert map supplied
-to serving. Add a pure unit test for the deployed top-k-6 ladder.
+1024 and a second shape for the attainable 16-divisible runtime-scalar
+variant. This avoids model dummy forwards and uses the real expert map
+supplied to serving. Add a pure unit test for the deployed top-k-6 ladder.
 ---
- .../test_fused_moe_warmup.py                      | 24 +++++++
- vllm/model_executor/warmup/kernel_warmup.py       | 79 ++++++++++++++++++++-
- 2 files changed, 102 insertions(+), 1 deletion(-)
+ .../test_fused_moe_warmup.py                      | 30 ++++++++
+ vllm/model_executor/warmup/kernel_warmup.py       | 95 +++++++++++++++++++++-
+ 2 files changed, 124 insertions(+), 1 deletion(-)
  create mode 100644 tests/model_executor/test_fused_moe_warmup.py
 
 diff --git a/tests/model_executor/test_fused_moe_warmup.py b/tests/model_executor/test_fused_moe_warmup.py
@@ -25,10 +27,11 @@ new file mode 100644
 index 000000000..14ce8e647
 --- /dev/null
 +++ b/tests/model_executor/test_fused_moe_warmup.py
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,30 @@
 +# SPDX-License-Identifier: Apache-2.0
 +from vllm.model_executor.warmup.kernel_warmup import (
 +    _FUSED_MOE_TOKEN_COUNTER_BLOCK_SIZES,
++    _FUSED_MOE_TOKEN_COUNTER_RUNTIME_DIVISIBILITY,
 +    _fused_moe_token_counter_token_counts,
 +)
 +
@@ -42,10 +45,15 @@ index 000000000..14ce8e647
 +    top_k = 6
 +    token_counts = _fused_moe_token_counter_token_counts(top_k)
 +
-+    assert token_counts == (1, 2, 3, 6, 11, 22, 43, 86)
++    assert token_counts == (1, 2, 3, 6, 8, 11, 16, 22, 24, 43, 48, 86, 88)
 +    assert {_counter_block_size(num_tokens * top_k) for num_tokens in token_counts} == set(
 +        _FUSED_MOE_TOKEN_COUNTER_BLOCK_SIZES
 +    )
++    assert {
++        _counter_block_size(num_tokens * top_k)
++        for num_tokens in token_counts
++        if (num_tokens * top_k) % _FUSED_MOE_TOKEN_COUNTER_RUNTIME_DIVISIBILITY == 0
++    } == {64, 128, 256, 512, 1024}
 +
 +
 +def test_fused_moe_token_counter_warmup_rejects_invalid_topk() -> None:
@@ -54,32 +62,54 @@ diff --git a/vllm/model_executor/warmup/kernel_warmup.py b/vllm/model_executor/w
 index fdcc43be6..bb6c9f8e5 100644
 --- a/vllm/model_executor/warmup/kernel_warmup.py
 +++ b/vllm/model_executor/warmup/kernel_warmup.py
-@@ -49,6 +49,83 @@
+@@ -7,5 +7,6 @@ happen during model execution.
+ """
+ 
++from math import gcd
+ from typing import TYPE_CHECKING
+ 
+ import torch
+@@ -49,6 +50,98 @@
  logger = init_logger(__name__)
  
  _LL_BF16_WARMUP_M_RANGE = range(1, 17)
 +_FUSED_MOE_TOKEN_COUNTER_BLOCK_SIZES = (8, 16, 32, 64, 128, 256, 512, 1024)
++_FUSED_MOE_TOKEN_COUNTER_RUNTIME_DIVISIBILITY = 16
 +
 +
 +def _fused_moe_token_counter_token_counts(top_k: int) -> tuple[int, ...]:
-+    """Return one token count for every reachable counter block size.
++    """Return counts covering counter blocks and Triton scalar descriptors.
 +
 +    ``count_expert_num_tokens`` compiles on the power-of-two block size of
 +    the flattened [tokens, top_k] router IDs, capped at 1024. A token count
-+    just above each lower block boundary covers the full set of possible
-+    specializations without issuing a full dummy model forward for each one.
++    just above each lower block boundary covers each reachable block. Triton
++    also specializes ordinary scalar arguments when it can prove a 16-way
++    divisibility property. Cover the attainable aligned shape for each block
++    as well, without issuing a full dummy model forward for either variant.
 +    """
 +    if top_k < 1:
 +        return ()
 +
-+    token_counts = []
++    token_counts = set()
++    alignment_period = _FUSED_MOE_TOKEN_COUNTER_RUNTIME_DIVISIBILITY // gcd(
++        top_k, _FUSED_MOE_TOKEN_COUNTER_RUNTIME_DIVISIBILITY
++    )
 +    for block_size in _FUSED_MOE_TOKEN_COUNTER_BLOCK_SIZES:
 +        min_numel = block_size // 2 + 1
 +        num_tokens = max(1, (min_numel + top_k - 1) // top_k)
 +        topk_numel = num_tokens * top_k
 +        if topk_numel <= block_size:
-+            token_counts.append(num_tokens)
-+    return tuple(token_counts)
++            token_counts.add(num_tokens)
++
++        # Triton emits a separate specialization when this runtime scalar is
++        # known to be divisible by 16. Its first feasible token count must
++        # remain in the same counter block.
++        aligned_num_tokens = (
++            (num_tokens + alignment_period - 1) // alignment_period
++        ) * alignment_period
++        if aligned_num_tokens * top_k <= block_size:
++            token_counts.add(aligned_num_tokens)
++    return tuple(sorted(token_counts))
 +
 +
 +def _warmup_fused_moe_token_counter(model: torch.nn.Module) -> None:
@@ -138,7 +168,7 @@ index fdcc43be6..bb6c9f8e5 100644
  
  
  def _ll_bf16_router_shapes_from_model(
-@@ -131,7 +208,9 @@ def kernel_warmup(worker: "Worker", *, process_local_only: bool = False):
+@@ -131,7 +224,9 @@ def kernel_warmup(worker: "Worker", *, process_local_only: bool = False):
          sparse_mla_triton_warmup(worker)
  
      if current_platform.has_device_capability(90):
