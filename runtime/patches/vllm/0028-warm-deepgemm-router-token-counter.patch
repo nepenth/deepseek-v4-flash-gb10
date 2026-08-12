@@ -133,7 +133,7 @@ index fdcc43be6..bb6c9f8e5 100644
 +    torch.accelerator.synchronize()
 +    logger.info_once(
 +        "Warmed DeepGEMM routed-expert token counter configurations: %s.",
-+        warmed_configs,
++        tuple(warmed_configs),
 +    )
  
  

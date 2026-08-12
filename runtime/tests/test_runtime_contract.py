@@ -113,8 +113,8 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("KV_CACHE_DTYPE=fp8_ds_mla", example)
         self.assertIn("KV_BLOCK_SIZE=256", example)
         self.assertIn("MOE_BACKEND=deep_gemm", example)
-        self.assertIn("v0.27.1-gb10-rc5", profile)
-        self.assertIn("v0.27.1-gb10-rc5", example)
+        self.assertIn("v0.27.1-gb10-rc6", profile)
+        self.assertIn("v0.27.1-gb10-rc6", example)
         self.assertIn('MOE_BACKEND: "${MOE_BACKEND:-flashinfer_b12x}"', compose)
         self.assertIn("--moe-backend $${MOE_BACKEND:-flashinfer_b12x}", compose)
         self.assertIn("MOE_BACKEND=\"$MOE_BACKEND\"", start)
@@ -162,6 +162,7 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("DeepGemmFP4Experts", patch)
         self.assertIn("_FUSED_MOE_TOKEN_COUNTER_BLOCK_SIZES", patch)
         self.assertIn("(1, 2, 3, 6, 11, 22, 43, 86)", patch)
+        self.assertIn("tuple(warmed_configs)", patch)
 
     def test_sm120_sparse_mla_small_decode_patch_is_included(self) -> None:
         patch = (

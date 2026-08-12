@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 set -euo pipefail
 
-IMAGE="${1:-dspark-vllm-gb10:v0.27.1-gb10-rc5}"
+IMAGE="${1:-dspark-vllm-gb10:v0.27.1-gb10-rc6}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 [[ -f "$ROOT/cluster/environments/vllm-switch.env" ]] && source "$ROOT/cluster/environments/vllm-switch.env"
 WORKER_SSH="${WORKER_SSH:-${VLLM_SWITCH_WORKER_SSH:-}}"
