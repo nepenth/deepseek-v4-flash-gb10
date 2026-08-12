@@ -101,6 +101,10 @@ class RuntimeContractTests(unittest.TestCase):
         start = (ROOT / "start-deepseek-v4-flash-dspark.sh").read_text()
         self.assertIn("RESTART_POLICY=no", profile)
         self.assertIn("ROLLBACK_PROFILE=deepseek-v4-flash-0731-dspark", profile)
+        legacy_profile = (ROOT / "cluster/profiles/deepseek-v4-flash-0731-dspark.conf").read_text()
+        self.assertIn(
+            "vllm-profile-runner start deepseek-v4-flash-0731-dspark", legacy_profile
+        )
         self.assertIn("MAX_MODEL_LEN=393216", example)
         self.assertIn("MAX_NUM_SEQS=6", example)
         self.assertIn("MAX_NUM_BATCHED_TOKENS=4096", example)
