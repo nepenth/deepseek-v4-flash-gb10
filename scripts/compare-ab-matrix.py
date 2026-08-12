@@ -57,7 +57,7 @@ def main() -> None:
         "cases": [],
     }
     lines = [
-        "| Prompt tokens | Concurrency | Metric | Before | After | Change |",
+        "| Prompt tokens | Concurrency | Metric | Before | After | Candidate change (positive is favorable) |",
         "|---:|---:|---|---:|---:|---:|",
     ]
     for key in sorted(before_cases):
@@ -67,14 +67,20 @@ def main() -> None:
         for metric, label, higher_is_better in METRICS:
             old = float(before_summary[metric])
             new = float(after_summary[metric])
-            change = delta(old, new)
+            raw_change = delta(old, new)
+            favorable_change = raw_change if higher_is_better else (
+                None if raw_change is None else -raw_change
+            )
             result["metrics"][metric] = {
                 "after": new,
                 "before": old,
-                "change_percent": change,
+                "favorable_change_percent": favorable_change,
                 "higher_is_better": higher_is_better,
+                "raw_change_percent": raw_change,
             }
-            change_text = "n/a" if change is None else f"{change:+.1f}%"
+            change_text = (
+                "n/a" if favorable_change is None else f"{favorable_change:+.1f}%"
+            )
             lines.append(f"| {key[0]:,} | {key[1]} | {label} | {old:.2f} | {new:.2f} | {change_text} |")
         comparison["cases"].append(result)
     rendered = "\n".join(lines) + "\n"
