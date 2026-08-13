@@ -21,6 +21,15 @@ METRICS = (
     ("p95_decode_token_latency_ms", "P95 decode-token latency ms", False),
 )
 
+# Optional DSpark / engine telemetry. Compared only when both arms recorded it.
+# None for higher_is_better means informational (shown, not scored as favorable).
+TELEMETRY_METRICS = (
+    ("median_mean_acceptance_length", "Mean DSpark acceptance length", True),
+    ("median_queue_s", "Median queue time s", False),
+    ("median_peak_kv_cache_usage_perc", "Peak KV-cache usage (0-1)", None),
+    ("median_host_mem_available_kib", "Host MemAvailable KiB", True),
+)
+
 
 def load(path: str) -> dict[str, Any]:
     with open(path, encoding="utf-8") as source:
@@ -86,6 +95,55 @@ def main() -> None:
                 "n/a" if favorable_change is None else f"{favorable_change:+.1f}%"
             )
             lines.append(f"| {key[0]:,} | {key[1]} | {label} | {old:.2f} | {new:.2f} | {change_text} |")
+        for metric, label, higher_is_better in TELEMETRY_METRICS:
+            if metric not in before_summary or metric not in after_summary:
+                continue
+            if before_summary[metric] is None or after_summary[metric] is None:
+                continue
+            old = float(before_summary[metric])
+            new = float(after_summary[metric])
+            raw_change = delta(old, new)
+            if higher_is_better is None:
+                favorable_change = None
+            elif higher_is_better:
+                favorable_change = raw_change
+            else:
+                favorable_change = None if raw_change is None else -raw_change
+            result["metrics"][metric] = {
+                "after": new,
+                "before": old,
+                "favorable_change_percent": favorable_change,
+                "higher_is_better": higher_is_better,
+                "raw_change_percent": raw_change,
+            }
+            change_text = (
+                "n/a" if favorable_change is None else f"{favorable_change:+.1f}%"
+            )
+            lines.append(f"| {key[0]:,} | {key[1]} | {label} | {old:.4g} | {new:.4g} | {change_text} |")
+        before_pos = before_summary.get("acceptance_rate_by_pos") or {}
+        after_pos = after_summary.get("acceptance_rate_by_pos") or {}
+        for position in sorted(
+            set(before_pos) | set(after_pos),
+            key=lambda item: int(item) if str(item).isdigit() else item,
+        ):
+            if before_pos.get(position) is None or after_pos.get(position) is None:
+                continue
+            old = float(before_pos[position])
+            new = float(after_pos[position])
+            raw_change = delta(old, new)
+            metric = f"acceptance_rate_pos_{position}"
+            result["metrics"][metric] = {
+                "after": new,
+                "before": old,
+                "favorable_change_percent": raw_change,
+                "higher_is_better": True,
+                "raw_change_percent": raw_change,
+            }
+            change_text = "n/a" if raw_change is None else f"{raw_change:+.1f}%"
+            lines.append(
+                f"| {key[0]:,} | {key[1]} | DSpark accept rate pos {position} | "
+                f"{old:.3f} | {new:.3f} | {change_text} |"
+            )
         comparison["cases"].append(result)
     rendered = "\n".join(lines) + "\n"
     print(rendered, end="")

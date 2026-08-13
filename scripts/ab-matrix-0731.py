@@ -13,7 +13,11 @@ import argparse
 import asyncio
 import hashlib
 import json
+import os
+import re
 import statistics
+import subprocess
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -26,6 +30,10 @@ FIXTURE_VERSION = 1
 INSTRUCTION = (
     "\nProduce a continuous sequence of lowercase technical terms until the "
     "requested output limit. Do not reason aloud or add a preamble."
+)
+_METRICS_LABEL_RE = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)="([^"]*)"')
+_METRICS_LINE_RE = re.compile(
+    r"^(?P<name>[A-Za-z_:][A-Za-z0-9_:]*)(?:\{(?P<labels>[^}]*)\})?\s+(?P<value>\S+)"
 )
 
 
@@ -48,6 +56,190 @@ def request_json(url: str, body: dict[str, Any], timeout: int = 3600) -> dict[st
 
 def tokenize_url(base_url: str) -> str:
     return base_url.removesuffix("/v1") + "/tokenize"
+
+
+def metrics_url(base_url: str) -> str:
+    return base_url.removesuffix("/v1") + "/metrics"
+
+
+def _parse_prom_samples(text: str) -> list[tuple[str, dict[str, str], float]]:
+    samples: list[tuple[str, dict[str, str], float]] = []
+    for raw in text.splitlines():
+        if not raw or raw.startswith("#"):
+            continue
+        match = _METRICS_LINE_RE.match(raw)
+        if not match:
+            continue
+        labels = dict(_METRICS_LABEL_RE.findall(match.group("labels") or ""))
+        try:
+            value = float(match.group("value"))
+        except ValueError:
+            continue
+        samples.append((match.group("name"), labels, value))
+    return samples
+
+
+def scrape_vllm_metrics(url: str, timeout: int = 10) -> dict[str, Any] | None:
+    """Snapshot /metrics. Missing endpoint must not break fixture-lock A/B."""
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            text = response.read().decode()
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return None
+    samples = _parse_prom_samples(text)
+    accepted_by_pos: dict[str, float] = {}
+    drafts = draft_tokens = accepted = None
+    queue_sum = queue_count = None
+    kv_usage = waiting = running = None
+    cache_info: dict[str, str] = {}
+    for name, labels, value in samples:
+        if name == "vllm:spec_decode_num_accepted_tokens_per_pos_total":
+            accepted_by_pos[str(labels.get("position", ""))] = value
+        elif name == "vllm:spec_decode_num_drafts_total":
+            drafts = value
+        elif name == "vllm:spec_decode_num_draft_tokens_total":
+            draft_tokens = value
+        elif name == "vllm:spec_decode_num_accepted_tokens_total":
+            accepted = value
+        elif name == "vllm:request_queue_time_seconds_sum":
+            queue_sum = value
+        elif name == "vllm:request_queue_time_seconds_count":
+            queue_count = value
+        elif name == "vllm:kv_cache_usage_perc":
+            kv_usage = value
+        elif name == "vllm:num_requests_waiting":
+            waiting = value
+        elif name == "vllm:num_requests_running":
+            running = value
+        elif name == "vllm:cache_config_info":
+            cache_info = labels
+    return {
+        "accepted": accepted,
+        "accepted_by_pos": accepted_by_pos,
+        "cache_info": cache_info,
+        "draft_tokens": draft_tokens,
+        "drafts": drafts,
+        "kv_cache_usage_perc": kv_usage,
+        "num_requests_running": running,
+        "num_requests_waiting": waiting,
+        "queue_count": queue_count,
+        "queue_sum_s": queue_sum,
+    }
+
+
+def sample_gpu_memory() -> dict[str, Any]:
+    """Best-effort host GPU / unified-memory sample. GB10 nvidia-smi is often N/A."""
+    result: dict[str, Any] = {}
+    try:
+        completed = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,memory.used,memory.total,utilization.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        rows = []
+        for line in completed.stdout.splitlines():
+            parts = [part.strip() for part in line.split(",")]
+            if len(parts) < 4:
+                continue
+            rows.append(
+                {
+                    "index": parts[0],
+                    "memory_total": parts[2],
+                    "memory_used": parts[1],
+                    "utilization": parts[3],
+                }
+            )
+        if rows:
+            result["nvidia_smi"] = rows
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        meminfo = Path("/proc/meminfo").read_text(encoding="utf-8")
+        parsed: dict[str, int] = {}
+        for line in meminfo.splitlines():
+            if ":" not in line:
+                continue
+            key, raw = line.split(":", 1)
+            number = raw.strip().split()[0]
+            if number.isdigit():
+                parsed[key] = int(number)
+        if parsed:
+            result["host_meminfo_kib"] = {
+                key: parsed[key]
+                for key in ("MemTotal", "MemAvailable", "MemFree", "Cached", "SwapFree")
+                if key in parsed
+            }
+    except OSError:
+        pass
+    extra = os.environ.get("DSV4_AB_GPU_MEM_CMD")
+    if extra:
+        try:
+            completed = subprocess.run(
+                extra,
+                check=False,
+                capture_output=True,
+                shell=True,
+                text=True,
+                timeout=8,
+            )
+            result["gpu_mem_cmd"] = {
+                "cmd": extra,
+                "returncode": completed.returncode,
+                "stdout": completed.stdout.strip()[:2000],
+            }
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return result
+
+
+def _counter_delta(before: float | None, after: float | None) -> float | None:
+    if before is None or after is None:
+        return None
+    return after - before
+
+
+def summarize_spec_delta(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+    drafts = _counter_delta(before.get("drafts"), after.get("drafts"))
+    draft_tokens = _counter_delta(before.get("draft_tokens"), after.get("draft_tokens"))
+    accepted = _counter_delta(before.get("accepted"), after.get("accepted"))
+    pos_before = before.get("accepted_by_pos") or {}
+    pos_after = after.get("accepted_by_pos") or {}
+    positions = sorted(set(pos_before) | set(pos_after), key=lambda item: int(item) if str(item).isdigit() else item)
+    accepted_by_pos = {
+        position: _counter_delta(pos_before.get(position), pos_after.get(position))
+        for position in positions
+    }
+    queue_sum = _counter_delta(before.get("queue_sum_s"), after.get("queue_sum_s"))
+    queue_count = _counter_delta(before.get("queue_count"), after.get("queue_count"))
+    acceptance_by_pos_rate: dict[str, float | None] = {}
+    for position, count in accepted_by_pos.items():
+        if count is None or drafts in (None, 0):
+            acceptance_by_pos_rate[position] = None
+        else:
+            acceptance_by_pos_rate[position] = count / drafts
+    mean_acceptance_length = None
+    if accepted is not None and drafts not in (None, 0):
+        mean_acceptance_length = accepted / drafts
+    mean_queue_s = None
+    if queue_sum is not None and queue_count not in (None, 0):
+        mean_queue_s = queue_sum / queue_count
+    return {
+        "accepted_tokens": accepted,
+        "accepted_tokens_by_pos": accepted_by_pos,
+        "acceptance_rate_by_pos": acceptance_by_pos_rate,
+        "draft_tokens": draft_tokens,
+        "drafts": drafts,
+        "mean_acceptance_length": mean_acceptance_length,
+        "mean_queue_s": mean_queue_s,
+        "queue_count": queue_count,
+        "queue_sum_s": queue_sum,
+    }
 
 
 def token_count(base_url: str, model: str, prompt: str) -> int:
@@ -197,27 +389,106 @@ def stream_one(base_url: str, model: str, prompt: str, max_tokens: int) -> dict[
     }
 
 
+class MetricsSampler:
+    """Sample /metrics and optional GPU memory while a trial is in flight."""
+
+    def __init__(self, url: str | None, interval_s: float = 0.5) -> None:
+        self.url = url
+        self.interval_s = interval_s
+        self.samples: list[dict[str, Any]] = []
+        self.gpu_samples: list[dict[str, Any]] = []
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if not self.url:
+            return
+        self._thread = threading.Thread(target=self._run, name="ab-metrics", daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        while True:
+            snapshot = scrape_vllm_metrics(self.url)
+            if snapshot is not None:
+                snapshot["gpu_memory"] = sample_gpu_memory()
+                self.samples.append(snapshot)
+            if self._stop.wait(self.interval_s):
+                break
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+
+
+def _peak_kv_usage(samples: list[dict[str, Any]]) -> float | None:
+    values = [
+        float(sample["kv_cache_usage_perc"])
+        for sample in samples
+        if sample.get("kv_cache_usage_perc") is not None
+    ]
+    return max(values) if values else None
+
+
+def _peak_waiting(samples: list[dict[str, Any]]) -> float | None:
+    values = [
+        float(sample["num_requests_waiting"])
+        for sample in samples
+        if sample.get("num_requests_waiting") is not None
+    ]
+    return max(values) if values else None
+
+
 async def run_request_group(
     base_url: str,
     model: str,
     prompts: list[dict[str, Any]],
     max_tokens: int,
+    metrics_endpoint: str | None = None,
 ) -> dict[str, Any]:
+    before = scrape_vllm_metrics(metrics_endpoint) if metrics_endpoint else None
+    sampler = MetricsSampler(metrics_endpoint)
+    sampler.start()
     started = time.perf_counter()
-    requests = await asyncio.gather(
-        *[
-            asyncio.to_thread(stream_one, base_url, model, prompt["text"], max_tokens)
-            for prompt in prompts
-        ]
-    )
+    try:
+        requests = await asyncio.gather(
+            *[
+                asyncio.to_thread(stream_one, base_url, model, prompt["text"], max_tokens)
+                for prompt in prompts
+            ]
+        )
+    finally:
+        sampler.stop()
     elapsed_s = time.perf_counter() - started
+    after = scrape_vllm_metrics(metrics_endpoint) if metrics_endpoint else None
     completion_tokens = sum(int(request["completion_tokens"]) for request in requests)
-    return {
+    result: dict[str, Any] = {
         "aggregate_output_tok_s": completion_tokens / max(elapsed_s, 0.001),
         "elapsed_s": elapsed_s,
         "requests": requests,
         "total_completion_tokens": completion_tokens,
     }
+    if before is not None and after is not None:
+        telemetry = summarize_spec_delta(before, after)
+        telemetry["peak_kv_cache_usage_perc"] = _peak_kv_usage(sampler.samples + [before, after])
+        telemetry["peak_num_requests_waiting"] = _peak_waiting(sampler.samples + [before, after])
+        telemetry["gpu_memory_before"] = sample_gpu_memory()
+        telemetry["gpu_memory_after"] = sample_gpu_memory()
+        cache_info = after.get("cache_info") or before.get("cache_info") or {}
+        telemetry["cache_config"] = {
+            key: cache_info.get(key)
+            for key in (
+                "block_size",
+                "cache_dtype",
+                "gpu_memory_utilization",
+                "kv_cache_max_concurrency",
+                "kv_cache_size_tokens",
+                "num_gpu_blocks",
+            )
+            if key in cache_info
+        }
+        result["telemetry"] = telemetry
+    return result
 
 
 def percentile(values: list[float], fraction: float) -> float:
@@ -230,9 +501,13 @@ def percentile(values: list[float], fraction: float) -> float:
     return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
 
 
-def summarize(trials: list[dict[str, Any]]) -> dict[str, float]:
+def _median_or_none(values: list[float]) -> float | None:
+    return statistics.median(values) if values else None
+
+
+def summarize(trials: list[dict[str, Any]]) -> dict[str, Any]:
     requests = [request for trial in trials for request in trial["requests"]]
-    return {
+    summary: dict[str, Any] = {
         "median_decode_token_latency_ms": statistics.median(
             float(request["decode_token_latency_ms"]) for request in requests
         ),
@@ -249,6 +524,54 @@ def summarize(trials: list[dict[str, Any]]) -> dict[str, float]:
         "p95_elapsed_s": percentile([float(request["elapsed_s"]) for request in requests], 0.95),
         "p95_ttft_s": percentile([float(request["ttft_s"]) for request in requests], 0.95),
     }
+    telemetries = [trial["telemetry"] for trial in trials if trial.get("telemetry")]
+    if telemetries:
+        positions = sorted(
+            {
+                position
+                for item in telemetries
+                for position in (item.get("acceptance_rate_by_pos") or {})
+            },
+            key=lambda item: int(item) if str(item).isdigit() else item,
+        )
+        summary["median_mean_acceptance_length"] = _median_or_none(
+            [
+                float(item["mean_acceptance_length"])
+                for item in telemetries
+                if item.get("mean_acceptance_length") is not None
+            ]
+        )
+        summary["median_queue_s"] = _median_or_none(
+            [float(item["mean_queue_s"]) for item in telemetries if item.get("mean_queue_s") is not None]
+        )
+        summary["median_peak_kv_cache_usage_perc"] = _median_or_none(
+            [
+                float(item["peak_kv_cache_usage_perc"])
+                for item in telemetries
+                if item.get("peak_kv_cache_usage_perc") is not None
+            ]
+        )
+        summary["acceptance_rate_by_pos"] = {
+            position: _median_or_none(
+                [
+                    float(item["acceptance_rate_by_pos"][position])
+                    for item in telemetries
+                    if (item.get("acceptance_rate_by_pos") or {}).get(position) is not None
+                ]
+            )
+            for position in positions
+        }
+        if telemetries[0].get("cache_config"):
+            summary["cache_config"] = telemetries[0]["cache_config"]
+        gpu_available = [
+            int(sample["host_meminfo_kib"]["MemAvailable"])
+            for item in telemetries
+            for sample in (item.get("gpu_memory_after"), item.get("gpu_memory_before"))
+            if isinstance(sample, dict) and "host_meminfo_kib" in sample
+        ]
+        if gpu_available:
+            summary["median_host_mem_available_kib"] = statistics.median(gpu_available)
+    return summary
 
 
 async def main() -> None:
@@ -261,6 +584,17 @@ async def main() -> None:
     parser.add_argument("--max-tokens", type=int, default=256)
     parser.add_argument("--prompt-cache", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument(
+        "--metrics-url",
+        default="",
+        help="Prometheus /metrics URL. Default: <base-url minus /v1>/metrics. "
+        "Telemetry is omitted if the scrape fails; fixture lock is unchanged.",
+    )
+    parser.add_argument(
+        "--no-telemetry",
+        action="store_true",
+        help="Do not scrape /metrics or GPU memory. Fixture behavior is unchanged.",
+    )
     args = parser.parse_args()
     prompt_lengths = parse_csv(args.prompt_lengths)
     concurrency = parse_csv(args.concurrency)
@@ -278,27 +612,40 @@ async def main() -> None:
     )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
+    metrics_endpoint = None if args.no_telemetry else (args.metrics_url or metrics_url(args.base_url))
     report: dict[str, Any] = {
         "base_url": args.base_url,
         "cases": [],
         "fixture_sha256": fixture_digest(fixture),
         "max_tokens": args.max_tokens,
+        "metrics_url": metrics_endpoint,
         "model": args.model,
         "prompt_cache": str(fixture_path),
         "started_at": datetime.now(timezone.utc).isoformat(),
+        "telemetry": not args.no_telemetry,
         "trials": args.trials,
     }
     for length in prompt_lengths:
         for level in concurrency:
             warmups = [fixture["prompts"][f"p{length}-c{level}-warmup1-r{index}"] for index in range(level)]
-            await run_request_group(args.base_url, args.model, warmups, args.max_tokens)
+            await run_request_group(
+                args.base_url, args.model, warmups, args.max_tokens, metrics_endpoint=None
+            )
             trials = []
             for trial in range(1, args.trials + 1):
                 prompts = [
                     fixture["prompts"][f"p{length}-c{level}-trial{trial}-r{index}"]
                     for index in range(level)
                 ]
-                trials.append(await run_request_group(args.base_url, args.model, prompts, args.max_tokens))
+                trials.append(
+                    await run_request_group(
+                        args.base_url,
+                        args.model,
+                        prompts,
+                        args.max_tokens,
+                        metrics_endpoint=metrics_endpoint,
+                    )
+                )
             case = {
                 "concurrency": level,
                 "summary": summarize(trials),
