@@ -1,6 +1,6 @@
 # DGX Spark DeepSeek V4 Flash Handoff
 
-Status date: 2026-08-12
+Status date: 2026-08-13
 
 This document is the detailed handoff for the vLLM 0.27.1 GB10/DGX Spark
 recipe, runtime patches, cluster control plane, and qualification work. A
@@ -11,8 +11,10 @@ series, or live profile.
 
 The target is `deepseek-ai/DeepSeek-V4-Flash-0731` on two DGX Spark GB10
 nodes, tensor parallelism 2, with DSpark speculative decoding (K=5). The rc7
-candidate is active and its API is ready at the controlled one-million-token
-envelope.
+image remains active. Ops envelope is **400k / seqs 6 / batch 8192 / GMU 0.84**
+with an explicit `--kv-cache-memory=28235618304` (26.3 GiB) arena. Served
+names are the historical pair so existing clients keep working:
+`deepseek-ai/DeepSeek-V4-Flash-0731` and `deepseek-v4-flash-0731`.
 
 | Item | Value |
 |---|---|
@@ -24,8 +26,12 @@ envelope.
 | FlashInfer | 0.6.16.post3 plus a narrow upstream SM120 DSV4 dispatch overlay |
 | MoE backend | DeepGEMM MXFP4 |
 | KV cache dtype | `fp8_ds_mla` |
-| Context / sequences / batched tokens | 1,048,576 / 6 / 8,192 |
-| GPU memory utilization | 0.84 |
+| Context / sequences / batched tokens | **400,000 / 6 / 8,192** |
+| GPU memory utilization | 0.84 (still set; `--kv-cache-memory` overrides the leftover allocator) |
+| KV arena | `--kv-cache-memory=28235618304` (26.3 GiB) |
+| Live KV after that knob | **1,366,743 tokens · 3.42× @400k** (C3 full-window; not C4) |
+| Default arena without the knob | 18.2 GiB / 944,766 tokens · 2.36× @400k |
+| Served model names | `deepseek-ai/DeepSeek-V4-Flash-0731` and `deepseek-v4-flash-0731` |
 | Global / SWA cache pages | 256 / 64 tokens |
 | Rollback target after normal candidate activation | `deepseek-v4-flash-0731-dspark-1m-baseline` |
 
