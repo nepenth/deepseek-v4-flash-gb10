@@ -32,7 +32,14 @@ end-to-end latency by approximately 8-11% at 131K and 300K prompts.
   <img src="docs/assets/long-context-ab.svg" alt="Long-context rc7 candidate improvements" width="920">
 </p>
 
-The exact results, test design, caveats, and remaining work are in
+**2026-08-14 campaign (live now):** `#31` CPU hook skipped, thinking default
+off, suppress-stops 0.27.1 rewrite on, 1M advertised. Exact 32k×6 on a fresh
+1M bounce: **46.36 / 46.38 / 48.48 tok/s**, 1.05× spread, MTP 95.1%. Phase 5
+11/11, encoding 4/4, 1k soak 1000/1000, 1.04M retrieval PASS. Ledger:
+[docs/CAMPAIGN_2026-08-14.md](docs/CAMPAIGN_2026-08-14.md). Machine state:
+[`project-status.json`](project-status.json).
+
+The 2026-08-12 build/A/B history remains in
 [the GB10 handoff](docs/GB10_DSV4_HANDOFF_2026-08-12.md).
 
 ## Design Principles

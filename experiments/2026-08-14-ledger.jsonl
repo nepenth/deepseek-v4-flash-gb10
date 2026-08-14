@@ -1,0 +1,10 @@
+{"id":"20260814T110900Z-armb-hook-off-32kx6","ok":true,"median":43.13,"min":41.05,"max":44.50,"envelope":500000,"harness":"issue27-exact"}
+{"id":"20260814T124800Z-phase5","ok":true,"passed":11,"failed":0}
+{"id":"20260814T125200Z-e3-context-ladder","ok":true,"128k_s":85.3,"393k_s":290.4}
+{"id":"20260814T134900Z-e4-3x-restart-repro","ok":true,"mismatches":[]}
+{"id":"20260814T145420Z-e5-phase7-1k-soak","ok":true,"n":1000,"fail":0,"elapsed_s":855.5}
+{"id":"20260814T153526Z-e6-cancel-jit","ok":true,"after_cancel":"42"}
+{"id":"20260814T153913Z-e7-decode","ok":true,"c512":72.78,"c8k":75.72,"c32k":73.26,"c128k":50.96}
+{"id":"20260814T175500Z-e8-dspark","ok":true,"accept":0.549,"p0":0.938,"p4":0.351}
+{"id":"20260814T194000Z-e9-500k-ab","ok":true,"note":"decode-bench 500k 37 vs 1M 33; length not the tax"}
+{"id":"20260814T202300Z-e10-exact-1m","ok":true,"min":46.36,"med":46.38,"max":48.48,"spread":1.05,"mtp":0.951,"harness":"issue27-exact","envelope":1048576}

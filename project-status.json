@@ -1,0 +1,46 @@
+{
+  "project": "deepseek-v4-flash-gb10",
+  "status": "active",
+  "phase": "rc7-armb-1m-winner",
+  "updated": "2026-08-14T20:25:00Z",
+  "github": {
+    "repo": "nepenth/deepseek-v4-flash-gb10",
+    "visibility": "private",
+    "default_branch": "main"
+  },
+  "current_focus": "Keep rc7 Arm B + 1M as the proven winner; repo is source of truth, KB is the live mirror",
+  "live": {
+    "image": "dspark-vllm-gb10:v0.27.1-gb10-rc7",
+    "profile": "deepseek-v4-flash-0731-v0271-canary",
+    "max_model_len": 1048576,
+    "max_num_seqs": 6,
+    "hook31": "skipped",
+    "thinking_default": "off",
+    "suppress_stops": true,
+    "hindsight": "paused_until_chris"
+  },
+  "stamps": {
+    "correctness_safe_greedy": true,
+    "soak_stable_1k": true,
+    "exact_32kx6_tok_s_median": 46.38
+  },
+  "next_actions": [
+    {
+      "id": "NA-001",
+      "status": "pending",
+      "description": "Do not bake 0029 JIT warmup until A/B vs this winner"
+    },
+    {
+      "id": "NA-002",
+      "status": "deferred",
+      "description": "Port Mia PR #48 GPU thinking budget only if thinking=max is required"
+    }
+  ],
+  "blockers": [],
+  "canonical_docs": {
+    "readme": "README.md",
+    "campaign": "docs/CAMPAIGN_2026-08-14.md",
+    "handoff": "docs/GB10_DSV4_HANDOFF_2026-08-12.md",
+    "kb": "https://kb.whyland.com/go/ds4-rc7-campaign"
+  }
+}
