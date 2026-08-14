@@ -15,6 +15,7 @@ the detailed handoff, not as a claim that old profiles are current support.
 ### Validated
 
 - Exact 32k×6 on fresh 1M: 46.36 / 46.38 / 48.48 tok/s, 1.05×, MTP 95.1%.
+- Exact 128k C1 on live 1M: 99.91 tok/s, 1.00×, ITL 10.0 ms, MTP 95.6%.
 - Phase 5 11/11, official encoding 4/4, 3× restart greedy identical, 1k soak
   1000/1000, 1.04M three-needle retrieval.
 
