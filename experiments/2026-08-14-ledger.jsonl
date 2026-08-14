@@ -8,3 +8,4 @@
 {"id":"20260814T175500Z-e8-dspark","ok":true,"accept":0.549,"p0":0.938,"p4":0.351}
 {"id":"20260814T194000Z-e9-500k-ab","ok":true,"note":"decode-bench 500k 37 vs 1M 33; length not the tax"}
 {"id":"20260814T202300Z-e10-exact-1m","ok":true,"min":46.36,"med":46.38,"max":48.48,"spread":1.05,"mtp":0.951,"harness":"issue27-exact","envelope":1048576}
+{"id":"20260814T205000Z-e11-exact-repeat","ok":true,"min":42.59,"med":43.89,"max":45.31,"spread":1.06,"mtp":0.934,"harness":"issue27-exact","envelope":1048576}

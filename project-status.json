@@ -2,13 +2,13 @@
   "project": "deepseek-v4-flash-gb10",
   "status": "active",
   "phase": "rc7-armb-1m-winner",
-  "updated": "2026-08-14T20:25:00Z",
+  "updated": "2026-08-14T20:55:00Z",
   "github": {
     "repo": "nepenth/deepseek-v4-flash-gb10",
     "visibility": "private",
     "default_branch": "main"
   },
-  "current_focus": "Keep rc7 Arm B + 1M as the proven winner; repo is source of truth, KB is the live mirror",
+  "current_focus": "Winner repeatable (E10 46.4 / E11 43.9). Collector cron owns idle. 0029 in-tree, not baked.",
   "live": {
     "image": "dspark-vllm-gb10:v0.27.1-gb10-rc7",
     "profile": "deepseek-v4-flash-0731-v0271-canary",
@@ -22,7 +22,8 @@
   "stamps": {
     "correctness_safe_greedy": true,
     "soak_stable_1k": true,
-    "exact_32kx6_tok_s_median": 46.38
+    "exact_32kx6_tok_s_median": 46.38,
+    "exact_32kx6_repeat_median": 43.89
   },
   "next_actions": [
     {

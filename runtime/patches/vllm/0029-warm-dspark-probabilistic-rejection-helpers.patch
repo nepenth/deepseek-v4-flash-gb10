@@ -1,0 +1,185 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris <16943149+nepenth@users.noreply.github.com>
+Date: Wed, 12 Aug 2026 20:30:00 -0400
+Subject: [PATCH 29/29] Warm DSpark probabilistic rejection helper kernels
+
+Live rc7 JIT-monitors `_compute_local_logits_stats_kernel`,
+`_rejection_kernel`, and `_resample_kernel` on the first readiness
+request. Those kernels live in `rejection_sample()`, which is the
+probabilistic DSpark path (`draft_sample_method=probabilistic`). The
+greedy `rejection_greedy_sample_kernel` warmup does not cover them.
+
+The Triton cache on the rc7 canary has exactly two specializations per
+kernel, split by `target_logits` pointer dtype (bf16 vs f32) at
+BLOCK_SIZE 8192/1024 on sm121. Call `rejection_sample()` on dummy
+tensors for those dtypes, with and without draft logits, at request
+counts 1 and min(max_num_seqs, 4). No dummy model forward.
+
+Do not bake this into the running rc7 image.
+---
+--- a/tests/model_executor/test_spec_rejection_warmup.py
++++ b/tests/model_executor/test_spec_rejection_warmup.py
+@@ -0,0 +1,23 @@
++# SPDX-License-Identifier: Apache-2.0
++import torch
++
++from vllm.model_executor.warmup.kernel_warmup import (
++    _DSPARK_REJECTION_HELPER_DTYPES,
++    _dspark_rejection_helper_draft_modes,
++    _dspark_rejection_helper_num_reqs,
++)
++
++
++def test_dspark_rejection_helper_warmup_covers_observed_triton_keys() -> None:
++    # Live rc7 cache: two specializations per kernel, split by target_logits
++    # pointer dtype (bf16 vs f32). Request counts match the 0028-style 1/4
++    # ladder used for DSpark padded-input warmup.
++    assert _DSPARK_REJECTION_HELPER_DTYPES == (torch.bfloat16, torch.float32)
++    assert _dspark_rejection_helper_num_reqs(6) == (1, 4)
++    assert _dspark_rejection_helper_num_reqs(1) == (1,)
++    assert _dspark_rejection_helper_num_reqs(2) == (1, 2)
++    assert _dspark_rejection_helper_draft_modes() == (False, True)
++
++
++def test_dspark_rejection_helper_warmup_rejects_empty_batch() -> None:
++    assert _dspark_rejection_helper_num_reqs(0) == (1,)
+--- a/vllm/model_executor/warmup/kernel_warmup.py
++++ b/vllm/model_executor/warmup/kernel_warmup.py
+@@ -52,6 +52,7 @@
+ _LL_BF16_WARMUP_M_RANGE = range(1, 17)
+ _FUSED_MOE_TOKEN_COUNTER_BLOCK_SIZES = (8, 16, 32, 64, 128, 256, 512, 1024)
+ _FUSED_MOE_TOKEN_COUNTER_RUNTIME_DIVISIBILITY = 16
++_DSPARK_REJECTION_HELPER_DTYPES = (torch.bfloat16, torch.float32)
+ 
+ 
+ def _fused_moe_token_counter_token_counts(top_k: int) -> tuple[int, ...]:
+@@ -144,6 +145,121 @@
+     )
+ 
+ 
++def _dspark_rejection_helper_num_reqs(max_num_seqs: int) -> tuple[int, ...]:
++    """Request counts that cover the readiness probe and a small concurrent batch."""
++    counts = {1}
++    if max_num_seqs >= 4:
++        counts.add(4)
++    elif max_num_seqs > 1:
++        counts.add(int(max_num_seqs))
++    return tuple(sorted(counts))
++
++
++def _dspark_rejection_helper_draft_modes() -> tuple[bool, ...]:
++    # Cached sm121 copies compile the draft-logits callee (`cTrue`). Also
++    # cover the one-hot / no-draft-logits specialization.
++    return (False, True)
++
++
++def _warmup_dspark_probabilistic_rejection_helpers(worker: "Worker") -> None:
++    """Compile rejection_sample() helpers before enabling the JIT monitor.
++
++    DSpark is served with draft_sample_method=probabilistic. The first real
++    request otherwise JITs `_compute_local_logits_stats_kernel`,
++    `_rejection_kernel`, and `_resample_kernel`. Live Triton keys on GB10
++    split on target_logits dtype (bf16 vs f32), not on batch size.
++    """
++    spec_config = getattr(worker.vllm_config, "speculative_config", None)
++    if spec_config is None:
++        return
++    is_dspark = getattr(spec_config, "is_dspark", None)
++    if is_dspark is not None:
++        if not is_dspark():
++            return
++    elif getattr(spec_config, "method", None) != "dspark":
++        return
++
++    num_spec = int(getattr(spec_config, "num_speculative_tokens", 0) or 0)
++    if num_spec < 1:
++        return
++
++    from vllm.v1.worker.gpu.spec_decode.rejection_sampler_utils import (
++        rejection_sample,
++    )
++
++    device = worker.model_runner.device
++    model_config = worker.vllm_config.model_config
++    get_vocab_size = getattr(model_config, "get_vocab_size", None)
++    vocab_size = (
++        int(get_vocab_size())
++        if get_vocab_size is not None
++        else int(model_config.vocab_size)
++    )
++    if vocab_size < 1:
++        return
++
++    max_num_seqs = int(worker.scheduler_config.max_num_seqs)
++    warmed = []
++    for num_reqs in _dspark_rejection_helper_num_reqs(max_num_seqs):
++        num_logits = num_reqs * (num_spec + 1)
++        cu_num_logits = torch.arange(
++            0,
++            num_logits + 1,
++            num_spec + 1,
++            dtype=torch.int32,
++            device=device,
++        )
++        idx_mapping = torch.arange(num_reqs, dtype=torch.int32, device=device)
++        expanded_idx_mapping = torch.repeat_interleave(idx_mapping, num_spec + 1)
++        expanded_local_pos = torch.arange(
++            num_spec + 1, dtype=torch.int32, device=device
++        ).repeat(num_reqs)
++        pos = torch.zeros(num_logits, dtype=torch.int64, device=device)
++        temperature = torch.ones(num_reqs, dtype=torch.float32, device=device)
++        seed = torch.zeros(num_reqs, dtype=torch.int64, device=device)
++        draft_sampled = torch.zeros(num_logits, dtype=torch.int32, device=device)
++
++        for dtype in _DSPARK_REJECTION_HELPER_DTYPES:
++            target_logits = torch.zeros(
++                (num_logits, vocab_size), dtype=dtype, device=device
++            )
++            for has_draft_logits in _dspark_rejection_helper_draft_modes():
++                draft_logits = None
++                if has_draft_logits:
++                    draft_logits = torch.zeros(
++                        (num_reqs, num_spec, vocab_size),
++                        dtype=torch.float32,
++                        device=device,
++                    )
++                rejection_sample(
++                    target_logits,
++                    draft_logits,
++                    draft_sampled,
++                    cu_num_logits,
++                    pos,
++                    idx_mapping,
++                    expanded_idx_mapping,
++                    expanded_local_pos,
++                    temperature,
++                    seed,
++                    num_spec,
++                )
++                warmed.append(
++                    (
++                        num_reqs,
++                        num_spec,
++                        str(dtype).replace("torch.", ""),
++                        has_draft_logits,
++                    )
++                )
++
++    torch.accelerator.synchronize()
++    logger.info_once(
++        "Warmed DSpark probabilistic rejection helper configurations: %s.",
++        tuple(warmed),
++    )
++
++
+ def _ll_bf16_router_shapes_from_model(
+     model: torch.nn.Module,
+ ) -> tuple[tuple[int, int], ...]:
+@@ -227,6 +343,7 @@
+         model = worker.get_model()
+         _warmup_ll_bf16_router_gemm(model)
+         _warmup_fused_moe_token_counter(model)
++        _warmup_dspark_probabilistic_rejection_helpers(worker)
+ 
+     if worker.vllm_config.kernel_config.enable_cutedsl_warmup:
+         # TODO(roberto): Remove after registered CuTeDSL warmups are migrated
