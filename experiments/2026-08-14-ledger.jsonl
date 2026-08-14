@@ -10,3 +10,5 @@
 {"id":"20260814T202300Z-e10-exact-1m","ok":true,"min":46.36,"med":46.38,"max":48.48,"spread":1.05,"mtp":0.951,"harness":"issue27-exact","envelope":1048576}
 {"id":"20260814T205000Z-e11-exact-repeat","ok":true,"min":42.59,"med":43.89,"max":45.31,"spread":1.06,"mtp":0.934,"harness":"issue27-exact","envelope":1048576}
 {"id":"20260814T205500Z-e12-128k-c1","ok":true,"min":99.91,"med":99.91,"max":99.91,"spread":1.00,"mtp":0.956,"ttft_s":80.999,"wall_s":83.563,"itl_ms":10.0,"n":1,"target_in":131072,"harness":"issue27-exact","envelope":1048576}
+{"id":"20260814T212335Z-e13-32k-c1","ok":true,"min":103.45,"med":103.45,"max":103.45,"spread":1.00,"mtp":0.964,"ttft_s":19.684,"wall_s":22.160,"itl_ms":9.7,"n":1,"target_in":32768,"harness":"issue27-exact","envelope":1048576}
+{"id":"20260814T214800Z-e14-256-c1","ok":true,"min":109.77,"med":109.77,"max":109.77,"spread":1.00,"mtp":0.973,"ttft_s":1.644,"wall_s":3.977,"itl_ms":9.1,"n":1,"target_in":512,"harness":"issue27-exact","envelope":1048576}

@@ -35,8 +35,9 @@ end-to-end latency by approximately 8-11% at 131K and 300K prompts.
 **2026-08-14 campaign (live now):** `#31` CPU hook skipped, thinking default
 off, suppress-stops 0.27.1 rewrite on, 1M advertised. Exact 32k×6 on a fresh
 1M bounce: **46.36 / 46.38 / 48.48 tok/s**, 1.05× spread, MTP 95.1%. Repeat
-**42.59 / 43.89 / 45.31**. Exact 128k C1: **99.91 tok/s**, MTP 95.6%. Phase 5
-11/11, encoding 4/4, 1k soak 1000/1000, 1.04M retrieval PASS. Ledger:
+**42.59 / 43.89 / 45.31**. Exact 128k C1: **99.91 tok/s**, MTP 95.6%. Exact
+32k C1: **103.45 tok/s**, MTP 96.4%. Exact 256 C1: **109.77 tok/s**, MTP 97.3%.
+Phase 5 11/11, encoding 4/4, 1k soak 1000/1000, 1.04M retrieval PASS. Ledger:
 [docs/CAMPAIGN_2026-08-14.md](docs/CAMPAIGN_2026-08-14.md). Machine state:
 [`project-status.json`](project-status.json).
 

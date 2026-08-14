@@ -1,0 +1,17 @@
+[repro-exact] N=1 target_in=32768 out=256
+  lane0 prompt tokens = 32770
+
+[repro-exact] wave wall = 22.160 s
+
+lane      in   TTFT(s)  dec_tps meanITL(ms)  wall(s)
+   0   32770    19.684   103.45         9.7    22.16
+
+  decode min/median/max = 103.45 / 103.45 / 103.45 tok/s
+  spread (max/min)     = 1.00x
+
+[counter deltas over wave]
+  preemptions             = +0
+  prompt_tokens_total     = +32770
+  generation_tokens_total = +256
+  prefix_cache_hits_total = +0
+  MTP acceptance (wave)   = 96.4%
