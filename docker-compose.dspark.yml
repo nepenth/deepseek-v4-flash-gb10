@@ -27,6 +27,7 @@ services:
       - ${VLLM_GB10_PATCH_DIR:-./vllm_patch_gb10}:/opt/vllm-gb10-hybrid-nvfp4
       - ./patches/hotfix-dsv4-issue31-v0272.py:/opt/hotfix-dsv4-issue31-v0272.py:ro
       - ./patches/hotfix-dsv4-suppress-stops-v0271.py:/opt/hotfix-dsv4-suppress-stops-v0271.py:ro
+      - ./patches/hotfix-gb10-busy-loop-2ms.py:/opt/hotfix-gb10-busy-loop-2ms.py:ro
       - ${DSPARK_TMP_HOST:-${HOME}/.cache/dspark-tmp}:/tmp
 
     # Only inject VLLM_* keys registered by the pinned v0.27.1 source plus the
@@ -124,7 +125,7 @@ services:
           max) DEFAULT_CHAT_TEMPLATE_KWARGS='{"thinking":true,"reasoning_effort":"max"}' ;;
           *) echo "DEFAULT_THINKING must be one of: off, low, high, max (got: $${DEFAULT_THINKING})" >&2; exit 2 ;;
         esac;
-        if [ "${DSPARK_SKIP_ISSUE31_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-dsv4-issue31-v0272.py; fi; if [ "${DSPARK_SKIP_SUPPRESS_STOPS_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-dsv4-suppress-stops-v0271.py; fi;
+        if [ "${DSPARK_SKIP_ISSUE31_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-dsv4-issue31-v0272.py; fi; if [ "${DSPARK_SKIP_SUPPRESS_STOPS_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-dsv4-suppress-stops-v0271.py; fi; if [ "${DSPARK_SKIP_BUSY_LOOP_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-gb10-busy-loop-2ms.py; fi;
         REVISION_ARGS="";
         if [ -n "$${DSPARK_REVISION:-}" ]; then REVISION_ARGS="--revision $${DSPARK_REVISION}"; fi;
         exec /usr/local/bin/vllm serve ${DSPARK_MODEL:-deepseek-ai/DeepSeek-V4-Flash-0731}

@@ -629,6 +629,7 @@ scp "$COMPOSE_FILE" "${WORKER_HOST}:${REMOTE_COMPOSE_FILE}"
 scp "$ENV_FILE" "${WORKER_HOST}:${REMOTE_ENV_FILE}"
 scp "$SCRIPT_DIR/patches/hotfix-dsv4-issue31-v0272.py" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/patches/hotfix-dsv4-issue31-v0272.py"
 scp "$SCRIPT_DIR/patches/hotfix-dsv4-suppress-stops-v0271.py" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/patches/hotfix-dsv4-suppress-stops-v0271.py"
+scp "$SCRIPT_DIR/patches/hotfix-gb10-busy-loop-2ms.py" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/patches/hotfix-gb10-busy-loop-2ms.py"
 SIDECAR_COMPOSE_FILE="${SIDECAR_COMPOSE_FILE:-$SCRIPT_DIR/docker-compose.vl-sidecar.yml}"
 if [ -f "$SIDECAR_COMPOSE_FILE" ]; then
   scp "$SIDECAR_COMPOSE_FILE" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/docker-compose.vl-sidecar.yml"
