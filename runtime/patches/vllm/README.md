@@ -29,6 +29,14 @@ its upstream provenance here.
 | 0021 | vLLM `0914ed2e8` / PR #51725 | budget speculative input slots adaptively |
 | 0022 | vLLM `789c4f905` / PR #51566 | pair CUTLASS DSL 4.6.2 with QuACK 0.6.4 |
 | 0023 | vLLM `3f142bd85` / PR #51296 | align parser thinking default with the tokenizer |
+| 0024 | build hygiene | CUDA flash-attn submodule fetch for the GB10 image |
+| 0025 | build hygiene | skip FA3 when the target is not Hopper |
+| 0026 | build hygiene | shallow Triton kernels fetch |
+| 0027 | custom / SM120 | direct small-row sparse-MLA decode/prefill scratch |
+| 0028 | custom; baked in rc7 | warm DeepGEMM routed-expert token counters |
+| 0029 | staged only; NOT in `series` | warm DSpark probabilistic rejection helpers |
+
+0029 is present on disk for a future A/B. Do not apply it to rc7.
 
 Upstream references:
 

@@ -2,22 +2,29 @@
   "project": "deepseek-v4-flash-gb10",
   "status": "active",
   "phase": "rc7-armb-1m-winner",
-  "updated": "2026-08-14T21:48:30Z",
+  "updated": "2026-08-17T12:00:00Z",
   "github": {
     "repo": "nepenth/deepseek-v4-flash-gb10",
     "visibility": "private",
     "default_branch": "main"
   },
-  "current_focus": "E13 32k C1 103.45 and E14 256 C1 109.77 recorded. C1 ladder complete. 0029 unbaked.",
+  "current_focus": "Repo contract synced to live winner. 0029 still unbaked. No image rebuild since rc7.",
   "live": {
     "image": "dspark-vllm-gb10:v0.27.1-gb10-rc7",
     "profile": "deepseek-v4-flash-0731-v0271-canary",
     "max_model_len": 1048576,
     "max_num_seqs": 6,
+    "max_num_batched_tokens": 8192,
+    "gmu": 0.84,
+    "kv_cache_dtype": "fp8_ds_mla",
+    "kv_cache_memory_bytes": 28235618304,
+    "long_prefill_token_threshold": 1024,
     "hook31": "skipped",
     "thinking_default": "off",
     "suppress_stops": true,
-    "hindsight": "paused_until_chris"
+    "moe_backend": "deep_gemm",
+    "dspark_k": 5,
+    "verified_live_utc": "2026-08-17T11:54:57Z"
   },
   "stamps": {
     "correctness_safe_greedy": true,
@@ -43,11 +50,17 @@
       "id": "NA-003",
       "status": "pending",
       "description": "Do not bake 0029 JIT warmup until A/B vs this winner"
+    },
+    {
+      "id": "NA-004",
+      "status": "done",
+      "description": "Sync git compose/env/hotfixes to the live 2026-08-14 winner"
     }
   ],
   "blockers": [],
   "canonical_docs": {
     "readme": "README.md",
+    "decisions": "PROJECT-DECISIONS.md",
     "campaign": "docs/CAMPAIGN_2026-08-14.md",
     "handoff": "docs/GB10_DSV4_HANDOFF_2026-08-12.md",
     "kb": "https://kb.whyland.com/go/ds4-rc7-campaign"

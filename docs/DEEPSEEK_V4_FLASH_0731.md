@@ -27,11 +27,19 @@ The validated vLLM 0.27.1 rc7 candidate uses:
 | KV cache dtype | `fp8_ds_mla` |
 | Global C128 / SWA pages | 256 / 64 |
 | Default thinking | off; request-level reasoning controls remain available |
+| Long-prefill threshold | 1024 (`#27`; collapses 32k x 6 spread) |
+| `#31` CPU thinking-budget hook | skipped (`DSPARK_SKIP_ISSUE31_HOTFIX=1`) |
+| suppress-stops | ON (`patches/hotfix-dsv4-suppress-stops-v0271.py`) |
+| KV arena | `28235618304` bytes (26.3 GiB) |
 
 The native sparse-MLA backend requires `fp8_ds_mla` for this model. Do not
 substitute generic `nvfp4` or describe the legacy `nvfp4_ds_mla` spelling as a
 real packed cache. The current reasoning and implementation boundary is in
 [NVFP4_DS_MLA.md](NVFP4_DS_MLA.md).
+
+Decisions and rejected paths: [PROJECT-DECISIONS.md](../PROJECT-DECISIONS.md).
+The 2026-08-14 live envelope and numbers are in
+[CAMPAIGN_2026-08-14.md](CAMPAIGN_2026-08-14.md).
 
 ## Validation Requirements
 
@@ -47,6 +55,7 @@ The required release gates are:
    and output throughput.
 
 The current evidence is recorded in
-[GB10_DSV4_HANDOFF_2026-08-12.md](GB10_DSV4_HANDOFF_2026-08-12.md). It
-includes an identical 900K three-needle retrieval proof for baseline and
-candidate and the final long-context A/B results.
+[CAMPAIGN_2026-08-14.md](CAMPAIGN_2026-08-14.md) (live winner) and
+[GB10_DSV4_HANDOFF_2026-08-12.md](GB10_DSV4_HANDOFF_2026-08-12.md)
+(image/A/B history). The campaign includes 1.04M three-needle retrieval,
+exact 32k x 6, and the C1 ladder.

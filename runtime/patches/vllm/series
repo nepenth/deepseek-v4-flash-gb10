@@ -35,3 +35,6 @@
 0026-shallow-triton-kernels-fetch.patch
 0027-dsv4-sm120-direct-small-decode.patch
 0028-warm-deepgemm-router-token-counter.patch
+
+# Staged, not baked. 0029-warm-dspark-probabilistic-rejection-helpers.patch
+# exists beside this series. Do not add it until A/B vs the rc7 winner.

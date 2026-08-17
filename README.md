@@ -150,9 +150,12 @@ original license headers.
 
 ## Status and Next Work
 
-The completed runtime is usable as the current validated candidate. The next
-engineering work is intentionally limited: explain the observed cache-pool
-capacity difference, optionally warm three remaining speculative helper
-kernels based on actual JIT keys, extend full-profile soak coverage, and add
-DSpark acceptance/cache telemetry to the A/B harness. True packed NVFP4
-DS-MLA remains a separate research implementation.
+The live winner is still `dspark-vllm-gb10:v0.27.1-gb10-rc7` at advertised
+1M with the 2026-08-14 Arm B knobs. See
+[PROJECT-DECISIONS.md](PROJECT-DECISIONS.md) and
+[docs/CAMPAIGN_2026-08-14.md](docs/CAMPAIGN_2026-08-14.md).
+
+Next engineering work is intentionally limited: A/B 0029 against this
+winner before any rebuild, port Mia #48 only if `thinking=max` is required,
+and treat packed NVFP4 DS-MLA as a separate research implementation. Do not
+cut `max_model_len` to free RAM; shrink `KV_CACHE_MEMORY`.

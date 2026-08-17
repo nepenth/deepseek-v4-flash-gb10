@@ -4,6 +4,31 @@ This changelog begins with the independent GB10 runtime project. Historical
 upstream lineage and prior recipe context are retained through attribution and
 the detailed handoff, not as a claim that old profiles are current support.
 
+## 0.1.2 - 2026-08-17
+
+### Changed
+
+- Synced the checked-in compose/env/start contract to the live rc7 Arm B + 1M
+  winner. The previous env example still said `MAX_MODEL_LEN=400000` with the
+  KV arena commented out.
+- `docker-compose.dspark.yml` now mounts and applies the 0.27.1 suppress-stops
+  rewrite, optionally applies the #31 hook, passes `--kv-cache-memory` and
+  `--long-prefill-token-threshold 1024`, and defaults thinking off /
+  `deep_gemm`.
+- Start script now copies both runtime hotfixes to the worker.
+
+### Added
+
+- `patches/hotfix-dsv4-issue31-v0272.py` (present on the live cluster, missing
+  from git). Winner keeps `DSPARK_SKIP_ISSUE31_HOTFIX=1`.
+- `PROJECT-DECISIONS.md` for the winner knobs and rejected paths.
+
+### Validated
+
+- Live spark-1 2026-08-17T11:54:57Z: image `v0.27.1-gb10-rc7`,
+  `max_model_len=1048576`, hook skipped, thinking off, KV arena 26.3 GiB.
+  No image rebuild. Campaign C1 numbers unchanged (E13 103.45, E14 109.77).
+
 ## 0.1.1 - 2026-08-14
 
 ### Changed

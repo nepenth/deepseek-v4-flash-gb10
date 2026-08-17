@@ -624,9 +624,11 @@ trap on_error ERR
 print_resolved_profile
 
 echo "Syncing DSpark deployment files to ${WORKER_HOST}:${WORKER_DIR}"
-ssh "$WORKER_HOST" "mkdir -p $REMOTE_WORKER_DIR"
+ssh "$WORKER_HOST" "mkdir -p $REMOTE_WORKER_DIR/patches"
 scp "$COMPOSE_FILE" "${WORKER_HOST}:${REMOTE_COMPOSE_FILE}"
 scp "$ENV_FILE" "${WORKER_HOST}:${REMOTE_ENV_FILE}"
+scp "$SCRIPT_DIR/patches/hotfix-dsv4-issue31-v0272.py" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/patches/hotfix-dsv4-issue31-v0272.py"
+scp "$SCRIPT_DIR/patches/hotfix-dsv4-suppress-stops-v0271.py" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/patches/hotfix-dsv4-suppress-stops-v0271.py"
 SIDECAR_COMPOSE_FILE="${SIDECAR_COMPOSE_FILE:-$SCRIPT_DIR/docker-compose.vl-sidecar.yml}"
 if [ -f "$SIDECAR_COMPOSE_FILE" ]; then
   scp "$SIDECAR_COMPOSE_FILE" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/docker-compose.vl-sidecar.yml"
@@ -716,7 +718,7 @@ for _ in $(seq 1 "$WAIT_ATTEMPTS"); do
     echo "Running minimal OpenAI-compatible chat request..."
     curl -fsS --max-time 60 "$CHAT_URL" \
       -H "Content-Type: application/json" \
-      -d '{"model":"'"${SERVED_MODEL_NAME:-deepseek-v4-flash-dspark}"'","messages":[{"role":"user","content":"Reply with OK."}],"temperature":0.0}' >/dev/null
+      -d '{"model":"'"${SERVED_MODEL_NAME%% *}"'","messages":[{"role":"user","content":"Reply with OK."}],"temperature":0.0}' >/dev/null
     echo "Minimal chat request succeeded."
     exit 0
   fi

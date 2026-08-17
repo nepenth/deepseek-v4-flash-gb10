@@ -14,6 +14,7 @@ Start with these for the supported vLLM 0.27.1 GB10 runtime:
 | [NVFP4 DS-MLA](NVFP4_DS_MLA.md) | Why FP8 DS-MLA is supported today and what true NVFP4 work requires. |
 | [Asset registry](assets/README.md) | Editable SVG diagrams and their measured sources. |
 | [2026-08-14 campaign](CAMPAIGN_2026-08-14.md) | Live Arm B + 1M winner, A/B numbers, failures, next loops. |
+| [Decisions](../PROJECT-DECISIONS.md) | Winner knobs and rejected paths. |
 
 ## Historical References
 

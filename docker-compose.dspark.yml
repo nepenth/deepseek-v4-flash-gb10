@@ -25,6 +25,8 @@ services:
       # Experimental GB10 hybrid-weight plugin tree for
       # ENABLE_VLLM_GB10_PATCH=1 only.
       - ${VLLM_GB10_PATCH_DIR:-./vllm_patch_gb10}:/opt/vllm-gb10-hybrid-nvfp4
+      - ./patches/hotfix-dsv4-issue31-v0272.py:/opt/hotfix-dsv4-issue31-v0272.py:ro
+      - ./patches/hotfix-dsv4-suppress-stops-v0271.py:/opt/hotfix-dsv4-suppress-stops-v0271.py:ro
       - ${DSPARK_TMP_HOST:-${HOME}/.cache/dspark-tmp}:/tmp
 
     # Only inject VLLM_* keys registered by the pinned v0.27.1 source plus the
@@ -90,10 +92,11 @@ services:
       MASTER_PORT: "${MASTER_PORT:-25000}"
       # Checkpoint dspark_block_size is 5; k<5 truncates draft blocks (silent on 0.25.2 image).
       MTP_NUM_TOKENS: "${MTP_NUM_TOKENS:-5}"
-      DEFAULT_THINKING: "${DEFAULT_THINKING:-low}"
+      DEFAULT_THINKING: "${DEFAULT_THINKING:-off}"
+      DEFAULT_THINKING_TOKEN_BUDGET: "${DEFAULT_THINKING_TOKEN_BUDGET:-}"
       KV_CACHE_DTYPE: "${KV_CACHE_DTYPE:-fp8_ds_mla}"
       KV_BLOCK_SIZE: "${KV_BLOCK_SIZE:-256}"
-      MOE_BACKEND: "${MOE_BACKEND:-flashinfer_b12x}"
+      MOE_BACKEND: "${MOE_BACKEND:-deep_gemm}"
       # Mode 2 guards every DSv4 cache group against same-step prefix hits
       # before the producing GPU forward has written KV.
       VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT: "${VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT:-2}"
@@ -121,6 +124,7 @@ services:
           max) DEFAULT_CHAT_TEMPLATE_KWARGS='{"thinking":true,"reasoning_effort":"max"}' ;;
           *) echo "DEFAULT_THINKING must be one of: off, low, high, max (got: $${DEFAULT_THINKING})" >&2; exit 2 ;;
         esac;
+        if [ "${DSPARK_SKIP_ISSUE31_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-dsv4-issue31-v0272.py; fi; if [ "${DSPARK_SKIP_SUPPRESS_STOPS_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-dsv4-suppress-stops-v0271.py; fi;
         REVISION_ARGS="";
         if [ -n "$${DSPARK_REVISION:-}" ]; then REVISION_ARGS="--revision $${DSPARK_REVISION}"; fi;
         exec /usr/local/bin/vllm serve ${DSPARK_MODEL:-deepseek-ai/DeepSeek-V4-Flash-0731}
@@ -139,14 +143,16 @@ services:
         --max-num-batched-tokens ${MAX_NUM_BATCHED_TOKENS:-8192}
         --max-cudagraph-capture-size $$(( ${MAX_NUM_SEQS:-6} * (${MTP_NUM_TOKENS:-5} + 1) ))
         --gpu-memory-utilization ${GPU_MEMORY_UTILIZATION:-0.80}
+        --kv-cache-memory ${KV_CACHE_MEMORY}
         --enable-prefix-caching
         --enable-prompt-tokens-details
         --async-scheduling
         --enable-chunked-prefill
+        --long-prefill-token-threshold ${LONG_PREFILL_TOKEN_THRESHOLD:-1024}
         --speculative-config "$${SPECULATIVE_CONFIG}"
         --tokenizer-mode deepseek_v4
         --distributed-executor-backend mp
-        --moe-backend $${MOE_BACKEND:-flashinfer_b12x}
+        --moe-backend $${MOE_BACKEND:-deep_gemm}
         --tool-call-parser deepseek_v4
         --enable-auto-tool-choice
         --reasoning-parser deepseek_v4
