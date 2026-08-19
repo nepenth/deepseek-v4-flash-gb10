@@ -25,7 +25,7 @@ or Reederey c8r.
   profiling (`CUDA_ERROR_ILLEGAL_ADDRESS`). Aug 13 image works.
 - Official vLLM recipes page now points GB10 at
   `eugr/spark-vllm-b12x:latest`. Docs pointer, not a Spark-DS4 winner.
-- spark-1 checkout `5415c1f` is 37 commits behind origin. Irrelevant to
+- Head-node checkout `5415c1f` is 37 commits behind origin. Irrelevant to
   live DS4.
 
 ## MiaAI-Lab/DeepSeek-v4-Flash-DSpark-2x-DGX-Spark

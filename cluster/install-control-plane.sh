@@ -17,7 +17,7 @@ Usage: $0 --install
 
 Installs the repository-owned vllm-switch implementation on the head node.
 It does not stop, start, reload, or otherwise modify vllm-cluster.service.
-Run only from the deployed repository on spark-1.
+Run only from the deployed repository on the head node.
 EOF
   exit 2
 }

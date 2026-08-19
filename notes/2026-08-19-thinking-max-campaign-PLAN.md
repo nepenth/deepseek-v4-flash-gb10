@@ -18,7 +18,7 @@ Hindsight for the exclusive window.
 ## Sequence
 
 1. Verify clients (Hindsight / Hermes / others).
-2. Port patches into spark-1 `~/vllm-v0271-gb10` + git src:
+2. Port patches into the head-node `~/vllm-v0271-gb10` + git src:
    - `#52492` indexer capture guard
    - start-script scp all bind-mounted hotfixes
    - Mia `#55` tool-truncation finish_reason

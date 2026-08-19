@@ -2,7 +2,7 @@
 
 ## Done
 
-- Audited `nepenth/deepseek-v4-flash-gb10` @ `448ea1b` against live spark-1.
+- Audited `nepenth/deepseek-v4-flash-gb10` @ `448ea1b` against the live head node.
 - Campaign docs/ledger/E12-E14 were already committed. Deployable contract was not.
 - Copied missing `#31` hotfix from the live cluster.
 - Synced compose, start script, and canary env example to the live 1M winner.

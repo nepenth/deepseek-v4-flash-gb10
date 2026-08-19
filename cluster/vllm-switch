@@ -91,10 +91,10 @@ validate_profile() {
   [[ "$OFFLINE" == "1" ]] && return 0
   [[ -n "$WORKER_SSH" ]] || die "VLLM_SWITCH_WORKER_SSH is required in $SWITCH_CONFIG"
   [[ -x "$RUNNER" ]] || die "profile runner is missing or not executable: $RUNNER"
-  [[ -d "$MODEL_PATH" ]] || die "$name: model path is missing on spark-1: $MODEL_PATH"
+  [[ -d "$MODEL_PATH" ]] || die "$name: model path is missing on head: $MODEL_PATH"
   ssh -o BatchMode=yes -o ConnectTimeout=10 "$WORKER_SSH" \
     "test -d '$(printf "%s" "${WORKER_MODEL_PATH:-$MODEL_PATH}" | sed "s/'/'\\''/g")'" \
-    || die "$name: model path is missing on spark-2: ${WORKER_MODEL_PATH:-$MODEL_PATH}"
+    || die "$name: model path is missing on worker: ${WORKER_MODEL_PATH:-$MODEL_PATH}"
   for path in "${REQUIRED_LOCAL_PATHS[@]}"; do
     [[ -e "$path" ]] || die "$name: required local path is missing: $path"
   done
@@ -103,12 +103,12 @@ validate_profile() {
       || die "$name: required worker path is missing: $path"
   done
   image_head="$(docker image inspect "$DOCKER_IMAGE" --format '{{.Id}}' 2>/dev/null)" \
-    || die "$name: image is missing on spark-1: $DOCKER_IMAGE"
+    || die "$name: image is missing on head: $DOCKER_IMAGE"
   image_worker="$(ssh -o BatchMode=yes "$WORKER_SSH" \
     "docker image inspect '$DOCKER_IMAGE' --format '{{.Id}}'" 2>/dev/null)" \
-    || die "$name: image is missing on spark-2: $DOCKER_IMAGE"
+    || die "$name: image is missing on worker: $DOCKER_IMAGE"
   [[ "$image_head" == "$image_worker" ]] \
-    || die "$name: image IDs differ (spark-1=$image_head spark-2=$image_worker)"
+    || die "$name: image IDs differ (head=$image_head worker=$image_worker)"
   if [[ "$SERVICE_MODE" == "generic" && "${ALLOW_IMAGE_ENTRYPOINT:-0}" != "1" ]]; then
     image_entrypoint="$(docker image inspect "$DOCKER_IMAGE" --format '{{json .Config.Entrypoint}}')"
     [[ "$image_entrypoint" == "null" || "$image_entrypoint" == "[]" ]] || die \

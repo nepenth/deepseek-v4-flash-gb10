@@ -43,9 +43,9 @@ echo "captured_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "candidate_image=$IMAGE"
 echo "model_path=$MODEL_PATH"
 echo
-node_report spark-1 local
+node_report head local
 echo
-node_report spark-2 remote
+node_report worker remote
 echo
 echo "service_state=$(systemctl is-active vllm-cluster.service 2>/dev/null || true)"
 systemctl show vllm-cluster.service \

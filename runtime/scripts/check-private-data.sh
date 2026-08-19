@@ -14,6 +14,7 @@ patterns=(
   '192\.168\.[0-9]+\.[0-9]+'
   '10\.0\.10\.[0-9]+'
   'whyland\.com'
+  '(^|[^[:alnum:]])spark-[12]([^[:alnum:]]|$)'
   'ghp_[A-Za-z0-9]{20,}'
   'github_pat_[A-Za-z0-9_]{20,}'
   '(password|passwd|api[_-]?key)[[:space:]]*=[[:space:]]*[^$<{][^[:space:]]+'
