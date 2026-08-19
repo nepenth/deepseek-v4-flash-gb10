@@ -1,14 +1,14 @@
 {
   "project": "deepseek-v4-flash-gb10",
   "status": "active",
-  "phase": "rc7-armb-1m-winner",
-  "updated": "2026-08-17T16:30:00Z",
+  "phase": "rc7-thinking-max",
+  "updated": "2026-08-19T16:10:00Z",
   "github": {
     "repo": "nepenth/deepseek-v4-flash-gb10",
     "visibility": "private",
     "default_branch": "main"
   },
-  "current_focus": "Community cross-check 2026-08-17: stay on official 0731 + rc7. NVIDIA NVFP4 is preview, not a RAM win.",
+  "current_focus": "rc7 Arm B + 1M with DEFAULT_THINKING=max, Mia #48 GPU closer, #55, #52492. spark-eval in flight.",
   "live": {
     "image": "dspark-vllm-gb10:v0.27.1-gb10-rc7",
     "profile": "deepseek-v4-flash-0731-v0271-canary",
@@ -20,31 +20,30 @@
     "kv_cache_memory_bytes": 28235618304,
     "long_prefill_token_threshold": 1024,
     "hook31": "skipped",
-    "thinking_default": "off",
+    "thinking_default": "max",
+    "thinking_budget_gpu": true,
     "suppress_stops": true,
+    "issue55": true,
+    "issue52492": true,
     "moe_backend": "deep_gemm",
     "dspark_k": 5,
-    "verified_live_utc": "2026-08-17T11:54:57Z"
+    "verified_live_utc": "2026-08-19T15:21:56Z"
   },
   "stamps": {
     "correctness_safe_greedy": true,
     "soak_stable_1k": true,
-    "exact_32kx6_tok_s_median": 46.38,
+    "exact_32kx6_tok_s_median": 45.39,
     "exact_32kx6_repeat_median": 43.89,
+    "exact_32kx4_tok_s_median": 61.61,
     "exact_128k_c1_tok_s": 99.91,
     "exact_32k_c1_tok_s": 103.45,
     "exact_256_c1_tok_s": 109.77
   },
   "next_actions": [
     {
-      "id": "NA-001",
-      "status": "done",
-      "description": "C1 exact ladder complete (256/32k/128k). Do not re-run unless Chris directs"
-    },
-    {
       "id": "NA-002",
-      "status": "deferred",
-      "description": "Port Mia PR #48 GPU thinking budget only if thinking=max is required"
+      "status": "done",
+      "description": "Ported Mia #48 GPU thinking budget; server default thinking=max"
     },
     {
       "id": "NA-003",
@@ -52,9 +51,9 @@
       "description": "Do not bake 0029 JIT warmup until A/B vs this winner"
     },
     {
-      "id": "NA-004",
-      "status": "done",
-      "description": "Sync git compose/env/hotfixes to the live 2026-08-14 winner"
+      "id": "NA-005",
+      "status": "pending",
+      "description": "spark-eval full-compare + grok-4.5 judge for thinking=max"
     }
   ],
   "blockers": [],
@@ -62,7 +61,6 @@
     "readme": "README.md",
     "decisions": "PROJECT-DECISIONS.md",
     "campaign": "docs/CAMPAIGN_2026-08-14.md",
-    "handoff": "docs/GB10_DSV4_HANDOFF_2026-08-12.md",
-    "kb": "https://kb.whyland.com/go/ds4-rc7-campaign"
+    "handoff": "docs/GB10_DSV4_HANDOFF_2026-08-12.md"
   }
 }

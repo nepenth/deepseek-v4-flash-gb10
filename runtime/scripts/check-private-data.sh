@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 set -euo pipefail
 
-root="$(cd "$(dirname "$0")/.." && pwd)"
+root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 
 patterns=(
@@ -10,7 +10,12 @@ patterns=(
   '-----BEGIN [A-Z ]*PRIVATE KEY-----'
   '/Users/[^ /]+'
   '/home/anemll'
+  '/home/nepenthe'
   '192\.168\.[0-9]+\.[0-9]+'
+  '10\.0\.10\.[0-9]+'
+  'whyland\.com'
+  'ghp_[A-Za-z0-9]{20,}'
+  'github_pat_[A-Za-z0-9_]{20,}'
   '(password|passwd|api[_-]?key)[[:space:]]*=[[:space:]]*[^$<{][^[:space:]]+'
 )
 

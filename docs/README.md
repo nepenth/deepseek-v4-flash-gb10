@@ -26,7 +26,6 @@ cluster configuration without a new audit:
 - `PATCHES.md`
 - `GB10_EXECUTION_PLAN.md`
 - `DSML_SYNTAX_TEMP_ASYMMETRY.md`
-- `GLM-NEW-REPORT.md`
 
 Use [UPSTREAM_AUDIT_2026-08-11.md](UPSTREAM_AUDIT_2026-08-11.md) for the
 historical selection evidence behind the current recipe. Keep host-specific

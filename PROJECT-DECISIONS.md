@@ -18,8 +18,10 @@ Apply the winner as runtime env + bind-mount hotfixes, not a rebuild.
 - `KV_CACHE_MEMORY=28235618304` (26.3 GiB, 2.74M tokens, 2.61x at 1M)
 - DSpark K=5, `MOE_BACKEND=deep_gemm`
 - `LONG_PREFILL_TOKEN_THRESHOLD=1024`
-- `DEFAULT_THINKING=off`
+- `DEFAULT_THINKING=max` (2026-08-19)
 - `DSPARK_SKIP_ISSUE31_HOTFIX=1`
+- GPU thinking budget ON (`patches/hotfix-dsv4-issue31-v2-thinking-budget-gpu.py`, Mia #48 port)
+- `#55` tool-truncation + `#52492` indexer capture guard ON
 - suppress-stops 0.27.1 rewrite ON (`patches/hotfix-dsv4-suppress-stops-v0271.py`)
 - V2 runner ON. NEVER set `VLLM_USE_V2_MODEL_RUNNER=0`.
 
@@ -42,11 +44,17 @@ stays in-tree and OUT of `series`. rc7 remains the baked image.
 covers those keys. Baking without a 32k x 6 + C1 A/B would mix image
 change with a known-good envelope.
 
-## 2026-08-14 — Do not invent a thinking=max closer
+## 2026-08-19 — Server default is thinking=max via Mia #48
 
-**Decision:** Leave thinking default off. Port Mia PR #48 only if
-`thinking=max` is required. Do not turn it on via
-`DEFAULT_THINKING_TOKEN_BUDGET` (that is the #39 cliff).
+**Decision:** `DEFAULT_THINKING=max`. Port Mia PR #48 to 0.27.1
+(`VLLMValidationError` gate + greedy `_requires_logits_processing`).
+Do NOT set `DEFAULT_THINKING_TOKEN_BUDGET` (that is the #39 cliff).
+Clients that must not think (memory extractors) send
+`chat_template_kwargs.thinking=false`.
+
+**Measured:** Hindsight-shaped off-think still returns empty reasoning.
+32k×6 think-off stayed 45.39 tok/s median (no #31 tax). 32k×4 was 61.61
+tok/s — do not port Mia #90 inflight prefills.
 
 ## 2026-08-14 — Keep advertised 1M; shrink KV arena if you need free RAM
 

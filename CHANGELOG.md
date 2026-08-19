@@ -4,6 +4,27 @@ This changelog begins with the independent GB10 runtime project. Historical
 upstream lineage and prior recipe context are retained through attribution and
 the detailed handoff, not as a claim that old profiles are current support.
 
+## 0.1.3 - 2026-08-19
+
+### Changed
+
+- Server default is `DEFAULT_THINKING=max`. The `#31` CPU host-scan stays
+  skipped. Clients that must not think send `chat_template_kwargs.thinking=false`.
+- Start script copies every bind-mounted hotfix to the worker.
+
+### Added
+
+- `patches/hotfix-dsv4-issue31-v2-thinking-budget-gpu.py` (Mia #48 port to
+  vLLM 0.27.1, plus greedy logits-processing gate).
+- `patches/hotfix-dsv4-issue55-tool-truncation.py`
+- `patches/hotfix-dsv4-indexer-52492.py`
+
+### Validated
+
+- 32k×6 think-off: 43.92 / 45.39 / 46.79 tok/s, 1.07×, MTP 94.9%.
+- 32k×4 think-off: 60.53 / 61.61 / 62.45 tok/s. Mia #90 not required.
+- Off-think client still emits empty reasoning. Budget 8/32 closes.
+
 ## 0.1.2 - 2026-08-17
 
 ### Changed
@@ -25,7 +46,7 @@ the detailed handoff, not as a claim that old profiles are current support.
 
 ### Validated
 
-- Live spark-1 2026-08-17T11:54:57Z: image `v0.27.1-gb10-rc7`,
+- 2026-08-17T11:54:57Z: image `v0.27.1-gb10-rc7`,
   `max_model_len=1048576`, hook skipped, thinking off, KV arena 26.3 GiB.
   No image rebuild. Campaign C1 numbers unchanged (E13 103.45, E14 109.77).
 
@@ -33,9 +54,8 @@ the detailed handoff, not as a claim that old profiles are current support.
 
 ### Changed
 
-- Live winner is rc7 Arm B: skip the `#31` CPU thinking-budget hook, default
-  thinking off, apply the 0.27.1 suppress-stops rewrite, keep `max_model_len=1M`.
-- Repository is the source of truth for campaign state; KB is the live mirror.
+- Live winner is rc7 Arm B: skip the `#31` CPU thinking-budget hook, keep
+  `max_model_len=1M`. Thinking default later moved to max in 0.1.3.
 
 ### Validated
 
