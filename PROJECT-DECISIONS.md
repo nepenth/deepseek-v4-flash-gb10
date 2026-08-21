@@ -3,6 +3,20 @@
 Material serving decisions only. Experiment numbers live in
 `docs/CAMPAIGN_2026-08-14.md` and `experiments/2026-08-14-ledger.jsonl`.
 
+## 2026-08-21 — Dual-HCA QSFP merge is live fabric
+
+**Decision:** Keep both GB10 QSFP virtual HCAs in `NCCL_IB_HCA` /
+`NCCL_SOCKET_IFNAME` with `NCCL_IB_MERGE_NICS=1` and jumbo 9000. Do **not**
+pin `NCCL_IB_GID_INDEX`. Do **not** rebase the image.
+
+**Rationale:** Isolated nccl-tests all_reduce 1 GiB busbw went 12.53 → 23.55
+GB/s. IPv4 RoCEv2 GID indexes disagree across the two members, so a single
+pin is wrong. Post-bounce think-off C1 returned to the ~75 tok/s band; 32k×6
+spread stayed 1.00×; KV pool unchanged.
+
+**Consequences:** Start script skips GID resolve when HCA is a comma list.
+GLOO/TP remain single-ifname. Jumbo is a host netdev setting, not compose.
+
 ## 2026-08-14 — Live winner is rc7 Arm B + 1M, not a new image
 
 **Decision:** Keep `dspark-vllm-gb10:v0.27.1-gb10-rc7` as the baked image.

@@ -32,7 +32,14 @@ end-to-end latency by approximately 8-11% at 131K and 300K prompts.
   <img src="docs/assets/long-context-ab.svg" alt="Long-context rc7 candidate improvements" width="920">
 </p>
 
-**2026-08-19 (live now):** server default `thinking=max` via the Mia #48 GPU
+**2026-08-21 (live now):** dual-HCA QSFP merge is on (`NCCL_IB_MERGE_NICS=1`,
+GID index unset, jumbo 9000). Isolated nccl-tests 1 GiB busbw **12.53 →
+23.55 GB/s**. Think-off 256 C1 **77.4 tok/s** / TTFT 201 ms; 32k×6 **47.5
+tok/s** spread 1.00×. Server default remains `thinking=max` via the Mia #48
+GPU closer. `#31` CPU host-scan stays skipped. Machine state:
+[`project-status.json`](project-status.json).
+
+**2026-08-19:** server default `thinking=max` via the Mia #48 GPU
 closer (no omit-field `DEFAULT_THINKING_TOKEN_BUDGET`). `#31` CPU host-scan
 stays skipped. `#55` tool-truncation and `#52492` indexer capture guard are
 on. Exact 32k×6 think-off on this bounce: **43.92 / 45.39 / 46.79 tok/s**,

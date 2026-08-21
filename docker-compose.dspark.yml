@@ -31,6 +31,7 @@ services:
       - ./patches/hotfix-dsv4-indexer-52492.py:/opt/hotfix-dsv4-indexer-52492.py:ro
       - ./patches/hotfix-dsv4-suppress-stops-v0271.py:/opt/hotfix-dsv4-suppress-stops-v0271.py:ro
       - ./patches/hotfix-gb10-busy-loop-2ms.py:/opt/hotfix-gb10-busy-loop-2ms.py:ro
+      - ./patches/hotfix-dsv4-xhigh-max-alias.py:/opt/hotfix-dsv4-xhigh-max-alias.py:ro
       - ${DSPARK_TMP_HOST:-${HOME}/.cache/dspark-tmp}:/tmp
 
     # Only inject VLLM_* keys registered by the pinned v0.27.1 source plus the
@@ -89,6 +90,9 @@ services:
       NCCL_IGNORE_CPU_AFFINITY: "${NCCL_IGNORE_CPU_AFFINITY:-1}"
       NCCL_DEBUG: "${NCCL_DEBUG:-WARN}"
       NCCL_NVLS_ENABLE: "${NCCL_NVLS_ENABLE:-0}"
+      NCCL_IB_MERGE_NICS: "${NCCL_IB_MERGE_NICS:-}"
+      VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "${VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS:-1800}"
+      TILELANG_CACHE_DIR: "${TILELANG_CACHE_DIR:-/cache/huggingface/tilelang-cache}"
 
       NODE_RANK: "${NODE_RANK}"
       HEADLESS: "${HEADLESS:-}"
@@ -128,7 +132,7 @@ services:
           max) DEFAULT_CHAT_TEMPLATE_KWARGS='{"thinking":true,"reasoning_effort":"max"}' ;;
           *) echo "DEFAULT_THINKING must be one of: off, low, high, max (got: $${DEFAULT_THINKING})" >&2; exit 2 ;;
         esac;
-        if [ "${DSPARK_SKIP_ISSUE31_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-dsv4-issue31-v0272.py; fi; if [ "${DSPARK_SKIP_ISSUE48_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-dsv4-issue31-v2-thinking-budget-gpu.py; fi; if [ "${DSPARK_SKIP_ISSUE55_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-dsv4-issue55-tool-truncation.py; fi; if [ "${DSPARK_SKIP_ISSUE52492_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-dsv4-indexer-52492.py; fi; if [ "${DSPARK_SKIP_SUPPRESS_STOPS_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-dsv4-suppress-stops-v0271.py; fi; if [ "${DSPARK_SKIP_BUSY_LOOP_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-gb10-busy-loop-2ms.py; fi;
+        if [ "${DSPARK_SKIP_ISSUE31_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-dsv4-issue31-v0272.py; fi; if [ "${DSPARK_SKIP_ISSUE48_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-dsv4-issue31-v2-thinking-budget-gpu.py; fi; if [ "${DSPARK_SKIP_ISSUE55_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-dsv4-issue55-tool-truncation.py; fi; if [ "${DSPARK_SKIP_ISSUE52492_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-dsv4-indexer-52492.py; fi; if [ "${DSPARK_SKIP_SUPPRESS_STOPS_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-dsv4-suppress-stops-v0271.py; fi; if [ "${DSPARK_SKIP_BUSY_LOOP_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-gb10-busy-loop-2ms.py; fi; if [ "${DSPARK_SKIP_XHIGH_ALIAS_HOTFIX:-0}" != "1" ]; then python3 /opt/hotfix-dsv4-xhigh-max-alias.py; fi; if [ -z "$${NCCL_IB_GID_INDEX:-}" ]; then unset NCCL_IB_GID_INDEX; fi; if [ -z "$${NCCL_IB_MERGE_NICS:-}" ]; then unset NCCL_IB_MERGE_NICS; fi;
         REVISION_ARGS="";
         if [ -n "$${DSPARK_REVISION:-}" ]; then REVISION_ARGS="--revision $${DSPARK_REVISION}"; fi;
         exec /usr/local/bin/vllm serve ${DSPARK_MODEL:-deepseek-ai/DeepSeek-V4-Flash-0731}

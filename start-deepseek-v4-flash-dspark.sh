@@ -352,6 +352,16 @@ pick_gid_match_ip() {
 resolve_nccl_gid_indexes() {
   local head_match worker_match resolved_head resolved_worker
 
+  # Multi-HCA: a single NCCL_IB_GID_INDEX cannot satisfy disagreeing
+  # per-member RoCEv2 indexes (Whyland NIC1 IPv4=5, NIC2 IPv4=3).
+  # Leave unset and let NCCL pick per HCA. Proven nccl-tests 2026-08-20.
+  if [[ "${NCCL_IB_HCA:-}" == *","* ]]; then
+    NCCL_IB_GID_INDEX=""
+    WORKER_NCCL_IB_GID_INDEX=""
+    echo "Multi-HCA NCCL_IB_HCA=$NCCL_IB_HCA — leaving NCCL_IB_GID_INDEX unset (per-member auto)"
+    return 0
+  fi
+
   if [ "$NCCL_IB_GID_AUTO" = "0" ]; then
     NCCL_IB_GID_INDEX="${ENV_NCCL_IB_GID_INDEX:-}"
     WORKER_NCCL_IB_GID_INDEX="${ENV_WORKER_NCCL_IB_GID_INDEX:-$NCCL_IB_GID_INDEX}"
@@ -633,6 +643,7 @@ scp "$SCRIPT_DIR/patches/hotfix-dsv4-issue55-tool-truncation.py" "${WORKER_HOST}
 scp "$SCRIPT_DIR/patches/hotfix-dsv4-indexer-52492.py" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/patches/hotfix-dsv4-indexer-52492.py"
 scp "$SCRIPT_DIR/patches/hotfix-dsv4-suppress-stops-v0271.py" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/patches/hotfix-dsv4-suppress-stops-v0271.py"
 scp "$SCRIPT_DIR/patches/hotfix-gb10-busy-loop-2ms.py" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/patches/hotfix-gb10-busy-loop-2ms.py"
+scp "$SCRIPT_DIR/patches/hotfix-dsv4-xhigh-max-alias.py" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/patches/hotfix-dsv4-xhigh-max-alias.py"
 SIDECAR_COMPOSE_FILE="${SIDECAR_COMPOSE_FILE:-$SCRIPT_DIR/docker-compose.vl-sidecar.yml}"
 if [ -f "$SIDECAR_COMPOSE_FILE" ]; then
   scp "$SIDECAR_COMPOSE_FILE" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/docker-compose.vl-sidecar.yml"

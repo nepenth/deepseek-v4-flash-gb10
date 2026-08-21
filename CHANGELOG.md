@@ -4,6 +4,22 @@ This changelog begins with the independent GB10 runtime project. Historical
 upstream lineage and prior recipe context are retained through attribution and
 the detailed handoff, not as a claim that old profiles are current support.
 
+## 0.1.4 - 2026-08-21
+
+### Changed
+
+- Dual-HCA QSFP merge is the live fabric config: list both virtual NICs,
+  `NCCL_IB_MERGE_NICS=1`, leave `NCCL_IB_GID_INDEX` unset, jumbo 9000.
+  GLOO/TP stay on a single ifname.
+- Engine execute timeout 1800s and a persistent TileLang cache dir.
+- Tokenizer maps `reasoning_effort=xhigh` to `max`.
+
+### Validated
+
+- nccl-tests 1 GiB busbw: 12.53 GB/s single-HCA → 23.55 GB/s dual-HCA merge.
+- Think-off 256 C1 77.4 tok/s / TTFT 201 ms after bounce; 32k×6 47.5 tok/s
+  spread 1.00×. KV pool unchanged at 2.74M / 2.61× @1M.
+
 ## 0.1.3 - 2026-08-19
 
 ### Changed

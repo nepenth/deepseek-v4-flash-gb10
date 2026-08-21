@@ -1,14 +1,14 @@
 {
   "project": "deepseek-v4-flash-gb10",
   "status": "active",
-  "phase": "rc7-thinking-max",
-  "updated": "2026-08-19T16:10:00Z",
+  "phase": "rc7-dual-hca",
+  "updated": "2026-08-21T00:50:00Z",
   "github": {
     "repo": "nepenth/deepseek-v4-flash-gb10",
     "visibility": "private",
     "default_branch": "main"
   },
-  "current_focus": "rc7 Arm B + 1M with DEFAULT_THINKING=max, Mia #48 GPU closer, #55, #52492. spark-eval in flight.",
+  "current_focus": "rc7 Arm B + 1M + thinking=max + dual-HCA QSFP merge promoted.",
   "live": {
     "image": "dspark-vllm-gb10:v0.27.1-gb10-rc7",
     "profile": "deepseek-v4-flash-0731-v0271-canary",
@@ -27,23 +27,34 @@
     "issue52492": true,
     "moe_backend": "deep_gemm",
     "dspark_k": 5,
-    "verified_live_utc": "2026-08-19T15:21:56Z"
+    "nccl_ib_merge_nics": true,
+    "nccl_gid_index": "unset",
+    "fabric_mtu": 9000,
+    "execute_model_timeout_seconds": 1800,
+    "verified_live_utc": "2026-08-21T00:08:33Z"
   },
   "stamps": {
     "correctness_safe_greedy": true,
     "soak_stable_1k": true,
+    "nccl_busbw_gbps_single_hca_1gib": 12.53,
+    "nccl_busbw_gbps_dual_hca_1gib": 23.55,
+    "thinkoff_256_c1_tok_s": 77.4,
+    "thinkoff_256_c1_ttft_ms": 201,
+    "thinkoff_32kx6_tok_s_median": 47.5,
     "exact_32kx6_tok_s_median": 45.39,
     "exact_32kx6_repeat_median": 43.89,
-    "exact_32kx4_tok_s_median": 61.61,
-    "exact_128k_c1_tok_s": 99.91,
-    "exact_32k_c1_tok_s": 103.45,
-    "exact_256_c1_tok_s": 109.77
+    "exact_32kx4_tok_s_median": 61.61
   },
   "next_actions": [
     {
       "id": "NA-002",
       "status": "done",
       "description": "Ported Mia #48 GPU thinking budget; server default thinking=max"
+    },
+    {
+      "id": "NA-006",
+      "status": "done",
+      "description": "Promoted dual-HCA QSFP merge after nccl-tests + think-off A/B"
     },
     {
       "id": "NA-003",
@@ -61,6 +72,7 @@
     "readme": "README.md",
     "decisions": "PROJECT-DECISIONS.md",
     "campaign": "docs/CAMPAIGN_2026-08-14.md",
+    "dual_hca": "notes/2026-08-21-dual-hca.md",
     "handoff": "docs/GB10_DSV4_HANDOFF_2026-08-12.md"
   }
 }
