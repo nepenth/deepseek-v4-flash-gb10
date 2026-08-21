@@ -6,15 +6,16 @@ Start with these for the supported vLLM 0.27.1 GB10 runtime:
 
 | Document | Purpose |
 |---|---|
-| [GB10 handoff](GB10_DSV4_HANDOFF_2026-08-12.md) | Detailed implementation, measured results, caveats, and next-agent execution plan. |
-| [Runtime contract](RUNTIME_V0271_GB10.md) | Locked inputs, build and patch policy, and serving contract. |
+| [DeepSeek V4 Flash 0731](DEEPSEEK_V4_FLASH_0731.md) | **Live** serving contract (1M, thinking=max, dual-HCA). |
+| [2026-08-21 dual-HCA](../notes/2026-08-21-dual-hca.md) | Isolated busbw + think-off decode after fabric merge. |
+| [2026-08-14 campaign](CAMPAIGN_2026-08-14.md) | 1M correctness / exact-length decode protocol (pre-fabric). |
+| [Runtime contract](RUNTIME_V0271_GB10.md) | Locked inputs, build and patch policy. |
 | [Setup](SETUP.md) | Safe standalone deployment sequence. |
 | [Control plane](CLUSTER_CONTROL_PLANE.md) | `vllm-switch` lifecycle, validation, and rollback. |
-| [DeepSeek V4 Flash 0731](DEEPSEEK_V4_FLASH_0731.md) | Model-specific serving configuration and required validation. |
-| [NVFP4 DS-MLA](NVFP4_DS_MLA.md) | Why FP8 DS-MLA is supported today and what true NVFP4 work requires. |
+| [NVFP4 DS-MLA](NVFP4_DS_MLA.md) | Why FP8 DS-MLA is supported today. |
 | [Asset registry](assets/README.md) | Editable SVG diagrams and their measured sources. |
-| [2026-08-14 campaign](CAMPAIGN_2026-08-14.md) | Live Arm B + 1M winner, A/B numbers, failures, next loops. |
 | [Decisions](../PROJECT-DECISIONS.md) | Winner knobs and rejected paths. |
+| [GB10 handoff](GB10_DSV4_HANDOFF_2026-08-12.md) | Image/A/B history only. Envelope numbers in it are **not** live. |
 
 ## Historical References
 

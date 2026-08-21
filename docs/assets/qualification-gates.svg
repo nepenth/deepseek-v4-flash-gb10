@@ -42,5 +42,5 @@
 
   <path class="line" d="M236 200 H266"/><path class="line" d="M452 200 H482"/><path class="line" d="M668 200 H698"/><path class="line" d="M884 200 H914"/>
   <rect class="good" x="419" y="294" width="362" height="42" rx="7"/>
-  <text x="457" y="322" class="text">rc7: qualified candidate evidence</text>
+  <text x="457" y="322" class="text">rc7 qualified · dual-HCA promoted</text>
 </svg>

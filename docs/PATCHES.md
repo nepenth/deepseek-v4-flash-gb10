@@ -169,7 +169,8 @@ python3 scripts/test-encoding-dsv4-issue21.py
 ## Issue #22 — `nvfp4_ds_mla` long-context decode regression
 
 ### Symptom
-With `--kv-cache-dtype nvfp4_ds_mla` (the recipe default), decode throughput
+With `--kv-cache-dtype nvfp4_ds_mla` (**historical Anemll/Stage-C default;
+live rc7 uses `fp8_ds_mla`**), decode throughput
 drops to ~1 tok/s at 600K+ context, while `fp8_ds_mla` maintains ~17 tok/s at
 the same context length. Short-context throughput (~66 tok/s) is unaffected.
 

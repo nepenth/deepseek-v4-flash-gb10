@@ -1,6 +1,12 @@
 # DGX Spark DeepSeek V4 Flash Handoff
 
-Status date: 2026-08-13
+> **Live winner moved (2026-08-21).** This file is the 2026-08-12/13 image and
+> A/B record. Do **not** treat the 400k envelope below as current. Live is
+> 1,048,576 / `thinking=max` / dual-HCA QSFP merge. See
+> [README](../README.md), [DEEPSEEK_V4_FLASH_0731.md](DEEPSEEK_V4_FLASH_0731.md),
+> and [notes/2026-08-21-dual-hca.md](../notes/2026-08-21-dual-hca.md).
+
+Status date: 2026-08-13 (envelope superseded)
 
 This document is the detailed handoff for the vLLM 0.27.1 GB10/DGX Spark
 recipe, runtime patches, cluster control plane, and qualification work. A

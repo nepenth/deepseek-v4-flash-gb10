@@ -34,20 +34,23 @@ end-to-end latency by approximately 8-11% at 131K and 300K prompts.
 
 **2026-08-21 (live now):** dual-HCA QSFP merge is on (`NCCL_IB_MERGE_NICS=1`,
 GID index unset, jumbo 9000). Isolated nccl-tests 1 GiB busbw **12.53 →
-23.55 GB/s**. Think-off 256 C1 **77.4 tok/s** / TTFT 201 ms; 32k×6 **47.5
-tok/s** spread 1.00×. Server default remains `thinking=max` via the Mia #48
-GPU closer. `#31` CPU host-scan stays skipped. Machine state:
-[`project-status.json`](project-status.json).
+23.55 GB/s**. Think-off ignore_eos 256 C1 **77.4 tok/s** / TTFT 201 ms;
+32k×6 **47.5 tok/s** spread 1.00×. Server default remains `thinking=max`
+via the Mia #48 GPU closer. `#31` CPU host-scan stays skipped. Machine
+state: [`project-status.json`](project-status.json).
+
+<p align="center">
+  <img src="docs/assets/dual-hca-busbw.svg" alt="Dual-HCA QSFP merge busbw 12.53 to 23.55 GB/s" width="920">
+</p>
 
 **2026-08-19:** server default `thinking=max` via the Mia #48 GPU
 closer (no omit-field `DEFAULT_THINKING_TOKEN_BUDGET`). `#31` CPU host-scan
 stays skipped. `#55` tool-truncation and `#52492` indexer capture guard are
-on. Exact 32k×6 think-off on this bounce: **43.92 / 45.39 / 46.79 tok/s**,
-1.07× spread, MTP 94.9%. Clients that must not think send
-`chat_template_kwargs.thinking=false`. Earlier 2026-08-14 C1 ladder and
-correctness stamps stay in
-[docs/CAMPAIGN_2026-08-14.md](docs/CAMPAIGN_2026-08-14.md). Machine state:
-[`project-status.json`](project-status.json).
+on. Exact 32k×6 think-off **before** the dual-HCA bounce:
+**43.92 / 45.39 / 46.79 tok/s**, 1.07× spread, MTP 94.9%. Clients that must
+not think send `chat_template_kwargs.thinking=false`. The 2026-08-14
+exact-length C1 ladder is a different protocol — see
+[docs/CAMPAIGN_2026-08-14.md](docs/CAMPAIGN_2026-08-14.md).
 
 The 2026-08-12 build/A/B history remains in
 [the GB10 handoff](docs/GB10_DSV4_HANDOFF_2026-08-12.md).

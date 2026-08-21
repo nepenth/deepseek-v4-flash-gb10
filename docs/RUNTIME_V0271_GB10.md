@@ -80,7 +80,7 @@ On the configured head node, build the same pinned image on both nodes:
 ./build-dspark-vllm-runtime.sh
 ```
 
-The resulting default image is `dspark-vllm-gb10:v0.27.1`.
+The resulting default image tag is `dspark-vllm-gb10:v0.27.1-gb10-rc7`.
 
 For a source-only contract test:
 
@@ -92,8 +92,9 @@ runtime/scripts/prepare-source.sh
 
 The default target is the pinned
 `deepseek-ai/DeepSeek-V4-Flash-0731` checkpoint, TP=2 over two GB10 nodes,
-DSpark with five speculative tokens, `deep_gemm` MXFP4 MoE, and
-`fp8_ds_mla` KV.
+DSpark with five speculative tokens, `deep_gemm` MXFP4 MoE,
+`fp8_ds_mla` KV, server `thinking=max`, and dual-HCA QSFP merge
+(`NCCL_IB_MERGE_NICS=1`, GID index unset).
 
 `flashinfer_b12x` is retained for the older production image, but the pinned
 vLLM source line rejects it for DeepSeek V4 MXFP4 experts. The canary must set
@@ -107,9 +108,9 @@ The patch series adds `VLLM_ALLOW_SPEC_DEC_SAME_STEP_PREFIX_HIT`:
 
 The rc7 image has completed two-node cold-cache boot, quick API/stability
 qualification, compatible latency-aware A/B matrices, and an actual 900K
-three-needle retrieval proof at the controlled 1M envelope. The active
-profile, exact results, remaining caveats, and next execution plan are in
-[GB10_DSV4_HANDOFF_2026-08-12.md](GB10_DSV4_HANDOFF_2026-08-12.md).
+three-needle retrieval proof at the controlled 1M envelope. Those image
+gates are historical; do not treat the 2026-08-12 handoff envelope (400k)
+as live. Live knobs: [DEEPSEEK_V4_FLASH_0731.md](DEEPSEEK_V4_FLASH_0731.md).
 
 Source and static contracts still do not replace future long-context,
 acceptance, cache-capacity, and throughput gates for any change to the image,

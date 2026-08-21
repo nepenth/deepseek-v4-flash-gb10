@@ -15,10 +15,11 @@ retrieval, and long-context stability after every runtime change.
 
 ## Current Candidate Configuration
 
-The validated vLLM 0.27.1 rc7 candidate uses:
+The validated vLLM 0.27.1 rc7 serve uses:
 
 | Setting | Value |
 |---|---|
+| Image | `dspark-vllm-gb10:v0.27.1-gb10-rc7` |
 | Max model length | 1,048,576 |
 | Max sequences | 6 |
 | Max batched tokens | 8,192 |
@@ -26,11 +27,12 @@ The validated vLLM 0.27.1 rc7 candidate uses:
 | MoE backend | `deep_gemm` |
 | KV cache dtype | `fp8_ds_mla` |
 | Global C128 / SWA pages | 256 / 64 |
-| Default thinking | off; request-level reasoning controls remain available |
-| Long-prefill threshold | 1024 (`#27`; collapses 32k x 6 spread) |
-| `#31` CPU thinking-budget hook | skipped (`DSPARK_SKIP_ISSUE31_HOTFIX=1`) |
-| suppress-stops | ON (`patches/hotfix-dsv4-suppress-stops-v0271.py`) |
-| KV arena | `28235618304` bytes (26.3 GiB) |
+| Default thinking | **max** (no omit-field `DEFAULT_THINKING_TOKEN_BUDGET`) |
+| Long-prefill threshold | 1024 (`#27`) |
+| `#31` CPU thinking-budget hook | skipped |
+| Mia #48 GPU closer / `#55` / `#52492` / suppress-stops | ON |
+| KV arena | `28235618304` bytes (26.3 GiB → 2.74M tokens, 2.61× @1M) |
+| Fabric | dual-HCA QSFP merge, `NCCL_IB_MERGE_NICS=1`, GID index unset, jumbo 9000 |
 
 The native sparse-MLA backend requires `fp8_ds_mla` for this model. Do not
 substitute generic `nvfp4` or describe the legacy `nvfp4_ds_mla` spelling as a
@@ -38,7 +40,8 @@ real packed cache. The current reasoning and implementation boundary is in
 [NVFP4_DS_MLA.md](NVFP4_DS_MLA.md).
 
 Decisions and rejected paths: [PROJECT-DECISIONS.md](../PROJECT-DECISIONS.md).
-The 2026-08-14 live envelope and numbers are in
+Live fabric evidence: [notes/2026-08-21-dual-hca.md](../notes/2026-08-21-dual-hca.md).
+The 2026-08-14 decode/correctness campaign (pre-fabric) is in
 [CAMPAIGN_2026-08-14.md](CAMPAIGN_2026-08-14.md).
 
 ## Validation Requirements
@@ -55,7 +58,9 @@ The required release gates are:
    and output throughput.
 
 The current evidence is recorded in
-[CAMPAIGN_2026-08-14.md](CAMPAIGN_2026-08-14.md) (live winner) and
+[notes/2026-08-21-dual-hca.md](../notes/2026-08-21-dual-hca.md) (live fabric),
+[CAMPAIGN_2026-08-14.md](CAMPAIGN_2026-08-14.md) (1M correctness / decode
+protocol), and
 [GB10_DSV4_HANDOFF_2026-08-12.md](GB10_DSV4_HANDOFF_2026-08-12.md)
-(image/A/B history). The campaign includes 1.04M three-needle retrieval,
-exact 32k x 6, and the C1 ladder.
+(image/A/B history). Do not mix the ignore_eos count-up C1 with the campaign
+exact-length C1 ladder.

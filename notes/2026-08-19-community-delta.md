@@ -1,5 +1,8 @@
 # Community delta vs live rc7 (2026-08-19)
 
+> Superseded as *live* snapshot on 2026-08-21: thinking is now `max` and
+> dual-HCA merge is on. Keep this note as the 2026-08-19 community review.
+
 Review only. No bounce, no rebuild.
 
 Live at review: `deepseek-v4-flash-0731-v0271-canary`, image

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="480" viewBox="0 0 1200 480" role="img" aria-labelledby="title desc">
+  <title id="title">Dual-HCA QSFP merge busbw on two GB10 nodes</title>
+  <desc id="desc">Isolated nccl-tests all_reduce 1 GiB busbw: 12.53 GB/s on one QSFP virtual HCA versus 23.55 GB/s with both HCAs merged.</desc>
+  <style>
+    .bg { fill: #f8fafc; }
+    .title { fill: #0f172a; font: 700 28px Arial, sans-serif; }
+    .sub { fill: #475569; font: 500 16px Arial, sans-serif; }
+    .label { fill: #0f172a; font: 700 18px Arial, sans-serif; }
+    .note { fill: #334155; font: 500 15px Arial, sans-serif; }
+    .axis { stroke: #94a3b8; stroke-width: 2; }
+    .single { fill: #64748b; }
+    .dual { fill: #0f766e; }
+    .warn { fill: #b45309; font: 600 15px Arial, sans-serif; }
+  </style>
+  <rect class="bg" width="1200" height="480"/>
+  <text x="60" y="48" class="title">Fabric A/B: Dual-HCA QSFP Merge (2026-08-21)</text>
+  <text x="60" y="76" class="sub">nccl-tests all_reduce, 1 GiB, NCCL 2.30.7, serve down. Jumbo MTU 9000 alone did not move single-HCA busbw.</text>
+
+  <line class="axis" x1="280" y1="380" x2="1040" y2="380"/>
+  <text x="268" y="408" class="note">0</text>
+  <text x="500" y="408" class="note">10 GB/s</text>
+  <text x="740" y="408" class="note">20 GB/s</text>
+  <text x="980" y="408" class="note">24 GB/s</text>
+
+  <text x="60" y="168" class="label">Single HCA</text>
+  <text x="60" y="192" class="note">one QSFP virtual NIC</text>
+  <rect class="single" x="280" y="140" width="396" height="52" rx="6"/>
+  <text x="688" y="173" class="label">12.53 GB/s  (~100 Gb/s)</text>
+
+  <text x="60" y="278" class="label">Dual-HCA merge</text>
+  <text x="60" y="302" class="note">MERGE_NICS=1, GID unset</text>
+  <rect class="dual" x="280" y="250" width="744" height="52" rx="6"/>
+  <text x="300" y="283" class="label" fill="#ffffff">23.55 GB/s  (~188 Gb/s)</text>
+  <text x="60" y="448" class="warn">+88% busbw. Post-bounce C1 decode also rose; restart is a confound, busbw is not.</text>
+</svg>

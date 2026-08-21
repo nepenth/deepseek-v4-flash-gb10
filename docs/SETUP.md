@@ -49,6 +49,9 @@ The final controlled candidate envelope is:
 | GPU memory utilization | 0.84 |
 | DSpark speculative tokens | 5 |
 | KV cache dtype | `fp8_ds_mla` |
+| KV arena | 26.3 GiB (`28235618304`) |
+| Default thinking | max |
+| Fabric | dual-HCA merge, GID unset, jumbo 9000 |
 | Global / SWA block size | 256 / 64 |
 
 The matching legacy baseline profile is
@@ -101,5 +104,8 @@ OUTPUT_ROOT="$PWD/.private/qualification" \
   --label rc-next --model deepseek-v4-flash-0731-v0271-canary --mode full
 ```
 
-The final handoff contains the exact A/B protocol and current results:
+The current operator envelope and fabric results:
+[DEEPSEEK_V4_FLASH_0731.md](DEEPSEEK_V4_FLASH_0731.md) and
+[notes/2026-08-21-dual-hca.md](../notes/2026-08-21-dual-hca.md).
+The 2026-08-12 image A/B protocol remains in
 [GB10_DSV4_HANDOFF_2026-08-12.md](GB10_DSV4_HANDOFF_2026-08-12.md).

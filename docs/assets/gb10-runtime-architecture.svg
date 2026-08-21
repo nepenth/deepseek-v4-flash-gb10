@@ -21,7 +21,7 @@
   </defs>
   <rect class="bg" width="1200" height="620"/>
   <text x="60" y="55" class="title">DeepSeek V4 Flash GB10 Serving Lane</text>
-  <text x="60" y="84" class="small">Pinned vLLM 0.27.1, TP=2, DSpark K=5, DeepGEMM MXFP4, FP8 DS-MLA</text>
+  <text x="60" y="84" class="small">rc7 · TP=2 · DSpark K=5 · thinking=max · fp8_ds_mla · dual-HCA QSFP merge</text>
 
   <rect class="panel" x="60" y="130" width="260" height="360" rx="8"/>
   <rect class="header" x="60" y="130" width="260" height="58" rx="8"/>
@@ -52,15 +52,15 @@
   <text x="841" y="167" class="label">Two DGX Spark Nodes</text>
   <rect x="840" y="216" width="270" height="92" rx="6" fill="#ecfeff" stroke="#0f766e" stroke-width="2"/>
   <text x="864" y="250" class="text">Rank 0: GB10 / SM121</text>
-  <text x="864" y="278" class="small">OpenAI-compatible API</text>
+  <text x="864" y="278" class="small">API · 1M ctx · 2.61x KV</text>
   <rect x="840" y="342" width="270" height="92" rx="6" fill="#ecfeff" stroke="#0f766e" stroke-width="2"/>
   <text x="864" y="376" class="text">Rank 1: GB10 / SM121</text>
-  <text x="864" y="404" class="small">tensor-parallel worker</text>
+  <text x="864" y="404" class="small">dual-HCA RoCE merge</text>
 
   <path class="line" d="M320 310 H390"/>
   <path class="line" d="M730 310 H800"/>
   <path class="dash" d="M973 310 V338"/>
 
   <rect x="60" y="535" width="1080" height="45" rx="6" fill="#e2e8f0"/>
-  <text x="85" y="564" class="small">Evidence gates: source contract - image parity - cold boot - API contracts - soak - retrieval - fixture-locked latency A/B</text>
+  <text x="60" y="564" class="small">Live 2026-08-21: 1,048,576 · thinking=max · dual-HCA 23.55 GB/s busbw · KV 2.74M / 2.61x</text>
 </svg>

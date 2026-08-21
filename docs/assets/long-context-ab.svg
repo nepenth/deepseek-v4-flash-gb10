@@ -16,8 +16,8 @@
     .warn { fill: #b45309; }
   </style>
   <rect class="bg" width="1200" height="680"/>
-  <text x="60" y="52" class="title">Long-Context A/B: rc7 Candidate versus Stage-C 1M Baseline</text>
-  <text x="60" y="80" class="sub">Positive percentage means favorable candidate movement. Fixed 256-token outputs, fixture-locked prompts, matched trials.</text>
+  <text x="60" y="52" class="title">Long-Context A/B: rc7 versus Stage-C 1M (2026-08-12)</text>
+  <text x="60" y="80" class="sub">Image/A/B only. Not the 2026-08-21 dual-HCA fabric change. Fixed 256-token outputs, fixture-locked prompts.</text>
 
   <line class="axis" x1="235" y1="570" x2="1120" y2="570"/>
   <line class="grid" x1="235" y1="130" x2="235" y2="570"/>
