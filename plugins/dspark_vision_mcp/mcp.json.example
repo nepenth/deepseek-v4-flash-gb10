@@ -4,10 +4,10 @@
   },
   "mcpServers": {
     "ds4f-vision": {
-      "command": "/home/mia/.local/bin/uvx",
+      "command": "/home/user/.local/bin/uvx",
       "args": [
         "--from",
-        "/home/mia/models/deepSeek-v4-Flash-DSpark/plugins/dspark_vision_mcp",
+        "/home/user/deepseek-v4-flash-gb10/plugins/dspark_vision_mcp",
         "ds4f-vision-mcp"
       ],
       "directTools": [

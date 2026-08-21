@@ -1,14 +1,14 @@
 {
   "project": "deepseek-v4-flash-gb10",
   "status": "active",
-  "phase": "rc7-dual-hca",
-  "updated": "2026-08-21T00:50:00Z",
+  "phase": "rc7-dual-hca-public-recipe",
+  "updated": "2026-08-21T16:00:00Z",
   "github": {
     "repo": "nepenth/deepseek-v4-flash-gb10",
-    "visibility": "private",
+    "visibility": "public",
     "default_branch": "main"
   },
-  "current_focus": "rc7 Arm B + 1M + thinking=max + dual-HCA QSFP merge promoted.",
+  "current_focus": "Public recipe for rc7 Arm B + 1M + thinking=max + dual-HCA QSFP merge.",
   "live": {
     "image": "dspark-vllm-gb10:v0.27.1-gb10-rc7",
     "profile": "deepseek-v4-flash-0731-v0271-canary",
@@ -43,7 +43,10 @@
     "thinkoff_32kx6_tok_s_median": 47.5,
     "exact_32kx6_tok_s_median": 45.39,
     "exact_32kx6_repeat_median": 43.89,
-    "exact_32kx4_tok_s_median": 61.61
+    "exact_32kx4_tok_s_median": 61.61,
+    "thinkmax_quality_score": 0.693,
+    "thinkmax_coding": 0.875,
+    "thinkmax_grok_4_5": 4.667
   },
   "next_actions": [
     {
@@ -57,22 +60,29 @@
       "description": "Promoted dual-HCA QSFP merge after nccl-tests + think-off A/B"
     },
     {
+      "id": "NA-005",
+      "status": "done",
+      "description": "thinking=max full-compare + grok-4.5 judge (Q 0.693 / coding 0.875 / 4.667)"
+    },
+    {
+      "id": "NA-007",
+      "status": "done",
+      "description": "Public-recipe README + LLM_README + local-identifier sweep"
+    },
+    {
       "id": "NA-003",
       "status": "pending",
       "description": "Do not bake 0029 JIT warmup until A/B vs this winner"
-    },
-    {
-      "id": "NA-005",
-      "status": "pending",
-      "description": "spark-eval full-compare + grok-4.5 judge for thinking=max"
     }
   ],
   "blockers": [],
   "canonical_docs": {
     "readme": "README.md",
+    "llm_readme": "LLM_README.md",
     "decisions": "PROJECT-DECISIONS.md",
     "campaign": "docs/CAMPAIGN_2026-08-14.md",
     "dual_hca": "notes/2026-08-21-dual-hca.md",
+    "thinkmax_eval": "notes/2026-08-21-thinkmax-eval.md",
     "handoff": "docs/GB10_DSV4_HANDOFF_2026-08-12.md"
   }
 }

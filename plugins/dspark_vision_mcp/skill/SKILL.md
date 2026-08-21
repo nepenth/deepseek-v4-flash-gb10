@@ -14,7 +14,7 @@ TP=2 across both Sparks).
 
 ## When to use
 
-- User gives a local path (`/home/mia/pic2.jpg`) or image URL and asks what is
+- User gives a local path (`/home/user/pic2.jpg`) or image URL and asks what is
   in it, colors, setting, text, differences between photos, etc.
 - Prefer tools over guessing from filenames.
 

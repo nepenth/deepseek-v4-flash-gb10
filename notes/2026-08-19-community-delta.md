@@ -47,7 +47,7 @@ Shipped since our Aug 13/17 notes:
 - 2026-08-18 assistant-final hotfix made **opt-in default off**.
 - 2026-08-14 `#48` GPU thinking budget locally merged on Anemll. GitHub
   PR `#48` closed unmerged. Do not invent; port only if thinking=max.
-- 2026-08-14 `#55` tool-truncation `finish_reason=length`. Hermes-relevant.
+- 2026-08-14 `#55` tool-truncation `finish_reason=length`. agent-relevant.
 
 ## Other referenced repos
 
@@ -85,7 +85,7 @@ suppress-stops and busy-loop. Next bounce MUST scp those two as well.
 
 1. Evaluate `#52492` 3-line capture guard as a bind-mount hotfix.
 2. Fix start-script scp coverage (ops, no serve change until bounce).
-3. Evaluate Mia `#55` tool-truncation for Hermes.
+3. Evaluate Mia `#55` tool-truncation for agent tool-calling.
 4. Port Mia `#90` inflight N=2 only if 32k×c4 starve reproduces on rc7.
-5. Port Mia `#48` only if Chris wants server thinking=max.
+5. Port Mia `#48` only if server thinking=max is required.
 6. Watch eugr `#349` and vLLM `#41834`. Do not cut over.

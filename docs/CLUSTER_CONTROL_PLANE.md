@@ -34,7 +34,7 @@ The first maintenance-window sequence is:
 
 ```bash
 ./cluster/deploy-to-sparks.sh --apply
-ssh HEAD 'cd /home/USER/vllm-v0271-gb10 && ./cluster/install-control-plane.sh --install'
+ssh HEAD 'cd /home/USER/deepseek-v4-flash-gb10 && ./cluster/install-control-plane.sh --install'
 ssh HEAD 'vllm-switch adopt deepseek-v4-flash-0731-dspark'
 ssh HEAD 'vllm-switch status'
 ssh HEAD 'vllm-switch validate deepseek-v4-flash-0731-v0271-canary'

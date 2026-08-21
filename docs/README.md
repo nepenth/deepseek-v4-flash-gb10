@@ -2,12 +2,16 @@
 
 ## Current Documents
 
+LLMs should ingest [`../LLM_README.md`](../LLM_README.md) first.
+
 Start with these for the supported vLLM 0.27.1 GB10 runtime:
 
 | Document | Purpose |
 |---|---|
+| [LLM ingest](../LLM_README.md) | Machine-oriented contract, pitfalls, file map. |
 | [DeepSeek V4 Flash 0731](DEEPSEEK_V4_FLASH_0731.md) | **Live** serving contract (1M, thinking=max, dual-HCA). |
 | [2026-08-21 dual-HCA](../notes/2026-08-21-dual-hca.md) | Isolated busbw + think-off decode after fabric merge. |
+| [2026-08-21 thinking=max eval](../notes/2026-08-21-thinkmax-eval.md) | Official full-compare + Grok-4.5 (protocol P4). |
 | [2026-08-14 campaign](CAMPAIGN_2026-08-14.md) | 1M correctness / exact-length decode protocol (pre-fabric). |
 | [Runtime contract](RUNTIME_V0271_GB10.md) | Locked inputs, build and patch policy. |
 | [Setup](SETUP.md) | Safe standalone deployment sequence. |

@@ -7,7 +7,7 @@ Worker received all scp'd hotfix files.
 
 ## Functional
 
-- Hindsight-off: `PING-OK-17`, reasoning_len=0
+- no-think client-off: `PING-OK-17`, reasoning_len=0
 - Server default: reasoning 111 chars, content `42`
 - Budget 8 @ 0.6: reasoning 35 chars (closer fired)
 - Budget 32 @ 0.6: reasoning 81 chars, content `42`

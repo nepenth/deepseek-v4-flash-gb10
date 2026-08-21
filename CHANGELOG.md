@@ -4,6 +4,23 @@ This changelog begins with the independent GB10 runtime project. Historical
 upstream lineage and prior recipe context are retained through attribution and
 the detailed handoff, not as a claim that old profiles are current support.
 
+## 0.1.5 - 2026-08-21
+
+### Changed
+
+- README is a public serving recipe (what / why / findings / quick start).
+- Added `LLM_README.md` for LLM ingest of the live contract and pitfalls.
+- GitHub visibility target is public. Local operator names, private DNS,
+  and homelab service names stripped from docs/notes.
+- `.env.dspark.example` knobs aligned with the live rc7 envelope (image tag,
+  port 8000, GMU 0.84, dual-HCA merge, 26.3 GiB KV arena, skip #31).
+
+### Validated
+
+- Live inspect still matches: `v0.27.1-gb10-rc7`, 1,048,576 / 6 / 8192 /
+  0.84, thinking=max, dual-HCA merge, GID unset.
+- thinking=max official full-compare Q 0.693 / coding 0.875 / Grok-4.5 4.667.
+
 ## 0.1.4 - 2026-08-21
 
 ### Changed

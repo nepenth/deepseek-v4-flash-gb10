@@ -84,7 +84,7 @@ Stay on **`deepseek-v4-flash-0731`**. Give an absolute image path (or URL) and a
 normally — the skill tells the model to call `describe_image` first, then reason:
 
 ```text
-Look at /home/mia/pic2.jpg — what color is the sweater and what is the likely
+Look at /home/user/pic2.jpg — what color is the sweater and what is the likely
 setting? Reason step by step.
 ```
 
@@ -200,12 +200,12 @@ Use absolute paths to `uvx` and the plugin so GUI/agent launches find them.
 curl -s http://127.0.0.1:8889/v1/models | head -c 200
 
 uv run --directory plugins/dspark_vision_mcp python -c \
-  'from dspark_vision_mcp.server import describe_image; print(describe_image("/home/mia/pic2.jpg", "sweater color?"))'
+  'from dspark_vision_mcp.server import describe_image; print(describe_image("/home/user/pic2.jpg", "sweater color?"))'
 ```
 
 CLI two-pass (extract + 0731 max reasoning):
 
 ```bash
-python3 scripts/vision-reason.py --image /home/mia/pic2.jpg \
+python3 scripts/vision-reason.py --image /home/user/pic2.jpg \
   --question "What color is the sweater and what is the likely setting?"
 ```

@@ -66,7 +66,7 @@ Do NOT set `DEFAULT_THINKING_TOKEN_BUDGET` (that is the #39 cliff).
 Clients that must not think (memory extractors) send
 `chat_template_kwargs.thinking=false`.
 
-**Measured:** Hindsight-shaped off-think still returns empty reasoning.
+**Measured:** A no-think client (`chat_template_kwargs.thinking=false`) still returns empty reasoning.
 32k×6 think-off stayed 45.39 tok/s median (no #31 tax). 32k×4 was 61.61
 tok/s — do not port Mia #90 inflight prefills.
 
